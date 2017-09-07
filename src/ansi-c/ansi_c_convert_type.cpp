@@ -16,7 +16,6 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/c_types.h>
 #include <util/namespace.h>
 #include <util/simplify_expr.h>
-#include <util/config.h>
 #include <util/arith_tools.h>
 #include <util/std_types.h>
 
@@ -219,8 +218,7 @@ void ansi_c_convert_typet::read_rec(const typet &type)
   else if(type.id()==ID_pointer)
   {
     // pointers have a width, much like integers
-    pointer_typet tmp=to_pointer_type(type);
-    tmp.set_width(config.ansi_c.pointer_width);
+    pointer_typet tmp=pointer_type(to_pointer_type(type).subtype());
     other.push_back(tmp);
   }
   else
