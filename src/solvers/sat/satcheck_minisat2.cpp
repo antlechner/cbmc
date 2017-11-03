@@ -12,6 +12,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <inttypes.h>
 #include <signal.h>
 #include <unistd.h>
+#include <time.h>
 #endif
 
 #include <stack>
@@ -198,6 +199,11 @@ propt::resultt satcheck_minisat2_baset<T>::prop_solve()
         convert(assumptions, solver_assumptions);
 
         using Minisat::lbool;
+
+        // HACK
+        double d = (double) time(nullptr);
+        solver->random_seed = d;
+        solver->random_var_freq = 1.0;
 
 #ifndef _WIN32
 
