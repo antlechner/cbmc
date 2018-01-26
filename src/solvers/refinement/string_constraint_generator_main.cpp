@@ -555,13 +555,15 @@ exprt string_constraint_generatort::add_axioms_for_function_application(
     res=add_axioms_for_set_length(expr);
   else if(id==ID_cprover_string_delete_func)
     res=add_axioms_for_delete(expr);
+  else if(id==ID_cprover_string_date_format_func)
+    res=add_axioms_for_date_format(expr);
   else if(id==ID_cprover_string_delete_char_at_func)
     res=add_axioms_for_delete_char_at(expr);
   else if(id==ID_cprover_string_replace_func)
     res=add_axioms_for_replace(expr);
   else if(id==ID_cprover_string_intern_func)
     res=add_axioms_for_intern(expr);
-  else if(id==ID_cprover_string_format_func)
+  else if(id==ID_cprover_string_string_format_func)
     res=add_axioms_for_string_format(expr);
   else if(id == ID_cprover_string_constrain_characters_func)
     res = add_axioms_for_constrain_characters(expr);
