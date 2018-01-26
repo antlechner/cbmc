@@ -1496,7 +1496,11 @@ codet java_string_library_preprocesst::make_string_format_code(
       args[1], i, structured_type, loc, symbol_table, code));
 
   refined_string_exprt string_expr = string_expr_of_function(
-    ID_cprover_string_format_func, processed_args, loc, symbol_table, code);
+    ID_cprover_string_string_format_func,
+    processed_args,
+    loc,
+    symbol_table,
+    code);
   exprt java_string=allocate_fresh_string(
     type.return_type(), loc, symbol_table, code);
   code.add(
@@ -2367,4 +2371,10 @@ void java_string_library_preprocesst::initialize_conversion_table()
         std::placeholders::_1,
         std::placeholders::_2,
         std::placeholders::_3);
+  // CProverString.dateFormat is meant to be used in the cases where one would
+  // normally use SimpleDateFormat.format
+  cprover_equivalent_to_java_string_returning_function
+    ["java::org.cprover.CProverString.dateFormat:(Ljava/lang/String;)"
+    "Ljava/lang/String;"]=
+      ID_cprover_string_date_format_func;
 }
