@@ -238,7 +238,7 @@ private:
     const std::string &s,
     const exprt::operandst &args);
 
-  array_string_exprt add_axioms_for_format_specifier(
+  std::pair<exprt, array_string_exprt> add_axioms_for_format_specifier(
     const format_specifiert &fs,
     const struct_exprt &arg,
     const typet &index_type,

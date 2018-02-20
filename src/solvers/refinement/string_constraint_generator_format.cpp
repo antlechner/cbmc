@@ -286,8 +286,10 @@ static exprt get_component_in_struct(
 /// \param arg: a struct containing the possible value of the argument to format
 /// \param index_type: type for indexes in strings
 /// \param char_type: type of characters
-/// \return String expression representing the output of String.format.
-array_string_exprt
+/// \return Pair consisting of return code and string expression representing
+/// the output of String.format. The return code is 0 on success, 1 for invalid
+/// format specifiers and 100 for format specifiers that we do not yet support.
+std::pair<exprt, array_string_exprt>
 string_constraint_generatort::add_axioms_for_format_specifier(
   const format_specifiert &fs,
   const struct_exprt &arg,
@@ -301,39 +303,44 @@ string_constraint_generatort::add_axioms_for_format_specifier(
   case format_specifiert::DECIMAL_INTEGER:
     return_code =
       add_axioms_from_int(res, get_component_in_struct(arg, ID_int));
-    return res;
+    return {return_code, res};
   case format_specifiert::HEXADECIMAL_INTEGER:
     return_code =
       add_axioms_from_int_hex(res, get_component_in_struct(arg, ID_int));
-    return res;
+    return {return_code, res};
   case format_specifiert::SCIENTIFIC:
     add_axioms_from_float_scientific_notation(
       res, get_component_in_struct(arg, ID_float));
-    return res;
+    return {return_code, res};
   case format_specifiert::DECIMAL_FLOAT:
     add_axioms_for_string_of_float(res, get_component_in_struct(arg, ID_float));
-    return res;
+    return {return_code, res};
   case format_specifiert::CHARACTER:
     return_code =
       add_axioms_from_char(res, get_component_in_struct(arg, ID_char));
-    return res;
+    return {return_code, res};
   case format_specifiert::BOOLEAN:
     return_code =
       add_axioms_from_bool(res, get_component_in_struct(arg, ID_boolean));
-    return res;
+    return {return_code, res};
   case format_specifiert::STRING:
-    return get_string_expr(get_component_in_struct(arg, "string_expr"));
+  {
+    return_code = from_integer(0, get_return_code_type());
+    const array_string_exprt string_res = get_string_expr(
+        get_component_in_struct(arg, "string_expr"));
+    return {return_code, string_res};
+  }
   case format_specifiert::HASHCODE:
     return_code =
       add_axioms_from_int(res, get_component_in_struct(arg, "hashcode"));
-    return res;
+    return {return_code, res};
   case format_specifiert::LINE_SEPARATOR:
     // TODO: the constant should depend on the system: System.lineSeparator()
     return_code = add_axioms_for_constant(res, "\n");
-    return res;
+    return {return_code, res};
   case format_specifiert::PERCENT_SIGN:
     return_code = add_axioms_for_constant(res, "%");
-    return res;
+    return {return_code, res};
   case format_specifiert::SCIENTIFIC_UPPER:
   case format_specifiert::GENERAL_UPPER:
   case format_specifiert::HEXADECIMAL_FLOAT_UPPER:
@@ -345,10 +352,10 @@ string_constraint_generatort::add_axioms_for_format_specifier(
   {
     string_constraint_generatort::format_specifiert fs_lower=fs;
     fs_lower.conversion=tolower(fs.conversion);
-    const array_string_exprt lower_case =
+    const auto lower_case_code_format_pair =
       add_axioms_for_format_specifier(fs_lower, arg, index_type, char_type);
-    add_axioms_for_to_upper_case(res, lower_case);
-    return res;
+    add_axioms_for_to_upper_case(res, lower_case_code_format_pair.second);
+    return {lower_case_code_format_pair.first, res};
   }
   case format_specifiert::OCTAL_INTEGER:
   /// \todo Conversion of octal is not implemented.
@@ -362,7 +369,8 @@ string_constraint_generatort::add_axioms_for_format_specifier(
     ///   string.
     message.warning() << "unimplemented format specifier: " << fs.conversion
                         << message.eom;
-    return fresh_string(index_type, char_type);
+    return_code = from_integer(100, get_return_code_type());
+    return {return_code, res};
   default:
     /// \todo Throwing exceptions for invalid format specifiers is not yet
     ///   implemented. In Java, a java.util.UnknownFormatConversionException is
@@ -371,7 +379,8 @@ string_constraint_generatort::add_axioms_for_format_specifier(
     message.error() << "invalid format specifier: " << fs.conversion
       << ". format specifier must belong to [bBhHsScCdoxXeEfgGaAtT%n]"
       << message.eom;
-    return res;
+    return_code = from_integer(1, get_return_code_type());
+    return {return_code, res};
   }
 }
 
@@ -453,8 +462,16 @@ exprt string_constraint_generatort::add_axioms_for_format(
           arg=to_struct_expr(args[fs.arg_index-1]);
         }
       }
-      formatted_elements.push_back(
-        add_axioms_for_format_specifier(fs, arg, index_type, char_type));
+      const auto code_format_pair =
+        add_axioms_for_format_specifier(fs, arg, index_type, char_type);
+      if(code_format_pair.first
+            != from_integer(0, get_return_code_type()))
+      {
+        // A nonzero exit code means an exception was thrown.
+        /// \todo Add support for exceptions in add_axioms_for_format_specifier
+        return code_format_pair.first;
+      }
+      formatted_elements.push_back(code_format_pair.second);
     }
     else // fe.is_fixed_text() == true
     {
