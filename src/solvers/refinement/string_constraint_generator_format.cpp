@@ -417,7 +417,9 @@ exprt string_constraint_generatort::add_axioms_for_format(
       if(fs.conversion!=format_specifiert::PERCENT_SIGN &&
          fs.conversion!=format_specifiert::LINE_SEPARATOR)
       {
-        if(fs.arg_index == -1)
+        // -1 means no value specified. 0 is a special case that is treated by
+        // Java as if no value was specified.
+        if(fs.arg_index == -1 || fs.arg_index == 0)
         {
           /// \todo In java, a java.util.MissingFormatArgumentException is
           ///   thrown when the number of arguments is less than the number of
@@ -483,17 +485,30 @@ exprt string_constraint_generatort::add_axioms_for_format(
   }
 
   if(formatted_elements.empty())
-    return to_array_string_expr(
-      array_exprt(array_typet(char_type, from_integer(0, index_type))));
+  {
+    // Formatting an empty string results in an empty string
+    add_axioms_for_constant(res, "");
+    return from_integer(0, get_return_code_type());
+  }
 
   auto it = formatted_elements.begin();
   array_string_exprt str = *(it++);
-  exprt return_code = from_integer(0, signedbv_typet(32));
+  exprt return_code = from_integer(0, get_return_code_type());
   for(; it != formatted_elements.end(); ++it)
   {
     const array_string_exprt fresh = fresh_string(index_type, char_type);
+    // fresh is the result of concatenating str and it
+    /// \todo `add_axioms_for_concat` currently always returns zero. In the
+    ///   future we might want it to return other values depending on whether or
+    ///   not the concatenation succeeded. For example, it will not succeed if
+    ///   concatenating the two strings would exceed the value specified for
+    ///   string-max-length.
+    exprt concat_return_code = add_axioms_for_concat(fresh, str, *it);
     return_code =
-      bitor_exprt(return_code, add_axioms_for_concat(fresh, str, *it));
+      if_exprt(
+          equal_exprt(return_code, from_integer(0, get_return_code_type())),
+          concat_return_code,
+          return_code);
     str = fresh;
   }
   // Copy
@@ -544,14 +559,12 @@ exprt string_constraint_generatort::add_axioms_for_format(
   const array_string_exprt res =
     char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
   const array_string_exprt format_string = get_string_expr(f.arguments()[2]);
-  unsigned int length;
+  const auto length = numeric_cast<unsigned>(format_string.length());
 
-  if(format_string.length().id()==ID_constant &&
-     format_string.content().id()==ID_array &&
-     !to_unsigned_integer(to_constant_expr(format_string.length()), length))
+  if(length && format_string.content().id()==ID_array)
   { // format_string is constant
     std::string s=utf16_constant_array_to_java(
-      to_array_expr(format_string.content()), length);
+      to_array_expr(format_string.content()), *length);
     // List of arguments after s
     std::vector<exprt> args(f.arguments().begin() + 3, f.arguments().end());
     return add_axioms_for_format(res, s, args);
