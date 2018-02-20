@@ -10,6 +10,13 @@ Date:   May 2017
 
 /// \file
 /// Generates string constraints for the Java format function
+/// \todo We currently use the following return codes:
+///     0: success
+///     1: whenever a java.util.UnknownFormatConversionException would be thrown
+///     2: whenever a java.util.MissingFormatArgumentException would be thrown
+///   100: correct Java code which we do not yet support
+///   These should be declared in a different file and given more meaningful
+///   names.
 
 #include <iomanip>
 #include <string>
@@ -357,11 +364,14 @@ string_constraint_generatort::add_axioms_for_format_specifier(
                         << message.eom;
     return fresh_string(index_type, char_type);
   default:
+    /// \todo Throwing exceptions for invalid format specifiers is not yet
+    ///   implemented. In Java, a java.util.UnknownFormatConversionException is
+    ///   thrown in this case. Instead, we currently just return a
+    ///   nondeterministic string.
     message.error() << "invalid format specifier: " << fs.conversion
-                      << message.eom;
-    INVARIANT(
-      false, "format specifier must belong to [bBhHsScCdoxXeEfgGaAtT%n]");
-    throw 0;
+      << ". format specifier must belong to [bBhHsScCdoxXeEfgGaAtT%n]"
+      << message.eom;
+    return res;
   }
 }
 
@@ -400,17 +410,45 @@ exprt string_constraint_generatort::add_axioms_for_format(
       {
         if(fs.arg_index == -1)
         {
-          INVARIANT(
-            arg_count<args.size(), "number of format must match specifiers");
+          /// \todo In java, a java.util.MissingFormatArgumentException is
+          ///   thrown when the number of arguments is less than the number of
+          ///   format specifiers without argument index. We do not yet support
+          ///   throwing the exception in this case and instead do not put any
+          ///   additional constraints on the string.
+          if(arg_count >= args.size())
+          {
+            message.warning() << "number of arguments must be at least number "
+                              << "of format specifiers without argument index"
+                              << message.eom;
+            return from_integer(2, get_return_code_type());
+          }
           arg=to_struct_expr(args[arg_count++]);
         }
         else
         {
-          INVARIANT(fs.arg_index>=0, "index in format should be positive");
-          INVARIANT(
-            static_cast<std::size_t>(fs.arg_index)<=args.size(),
-            "number of format must match specifiers");
-
+          /// \todo In Java, a java.util.UnknownFormatConversionException is
+          ///   thrown when the argument index in the format specifier is
+          ///   negative. We do not yet support throwing the exception in this
+          ///   case and instead do not put any additional constraints on the
+          ///   string.
+          if(fs.arg_index < 0)
+          {
+            message.warning() << "index in format should be nonnegative"
+                              << message.eom;
+            return from_integer(1, get_return_code_type());
+          }
+          /// \todo In Java, a java.util.MissingFormatArgumentException is
+          ///   thrown when the argument index in the format specifier is bigger
+          ///   than the number of arguments. We do not yet support throwing the
+          ///   exception in this case and instead do not put any additional
+          ///   constraints on the string.
+          if(static_cast<std::size_t>(fs.arg_index) > args.size())
+          {
+            message.warning() << "argument index in format specifier cannot be "
+                              << "bigger than number of arguments"
+                              << message.eom;
+            return from_integer(2, get_return_code_type());
+          }
           // first argument `args[0]` corresponds to argument index 1
           arg=to_struct_expr(args[fs.arg_index-1]);
         }
@@ -506,6 +544,6 @@ exprt string_constraint_generatort::add_axioms_for_format(
     message.warning()
       << "ignoring format function with non constant first argument"
       << message.eom;
-    return from_integer(1, f.type());
+    return from_integer(100, f.type());
   }
 }
