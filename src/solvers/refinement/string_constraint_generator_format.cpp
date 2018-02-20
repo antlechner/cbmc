@@ -21,11 +21,16 @@ Date:   May 2017
 
 #include "string_constraint_generator.h"
 
-// Format specifier describes how a value should be printed.
+/// A format specifier is of the form
+/// %[arg_index$][flags][width][.precision]conversion
+/// and is applied to an element of the argument list passed to String.format.
+/// It describes how this value should be printed. For details see
+/// https://docs.oracle.com/javase/7/docs/api/java/util/Formatter.html#syntax
 class string_constraint_generatort::format_specifiert
 {
 public:
-  // Constants describing the meaning of characters in format specifiers.
+  // Constants describing the meaning of conversion characters in format
+  // specifiers.
   static const char DECIMAL_INTEGER          ='d';
   static const char OCTAL_INTEGER            ='o';
   static const char HEXADECIMAL_INTEGER      ='x';
@@ -50,6 +55,7 @@ public:
   static const char LINE_SEPARATOR           ='n';
   static const char PERCENT_SIGN             ='%';
 
+  // Class members representing the structure of the format specifier
   int arg_index=-1;
   std::string flag;
   int width;
@@ -73,7 +79,8 @@ public:
   { }
 };
 
-// Format text represent a constant part of a format string.
+/// Class to represent fixed text in a format string. The contents of it are
+/// unchanged by calls to java.lang.String.format.
 class fixed_textt
 {
 public:
@@ -90,26 +97,36 @@ private:
   std::string content;
 };
 
-// A format element is either a specifier or text.
+/// A format string consists of format elements. A format element is either a
+/// format specifier or fixed text.
 class format_elementt
 {
 public:
+  /// Type representing the two different types of format elements
   typedef enum {SPECIFIER, TEXT} format_typet;
 
+  /// Given only a `format_typet` and no further information, we assign this to
+  /// the `type` of this format element and leave the `fstring` field set to the
+  /// empty string.
   explicit format_elementt(format_typet _type): type(_type), fstring("")
   {
   }
 
+  /// A string argument means that this format element is a fixed text.
   explicit format_elementt(std::string s): type(TEXT), fstring(s)
   {
   }
 
+  /// A format specifier argument means that this format element is a format
+  /// specifier.
   explicit format_elementt(string_constraint_generatort::format_specifiert fs):
     type(SPECIFIER),
     fstring("")
   {
     fspec.push_back(fs);
   }
+
+  // Getters and setters
 
   bool is_format_specifier() const
   {
@@ -140,13 +157,19 @@ public:
   }
 
 private:
+  /// Type of this format element: format specifier (SPECIFIER) or fixed text
+  /// (TEXT)
   format_typet type;
+  /// String storing the fixed text if the object is of type TEXT, and storing
+  /// the empty string if it is of type SPECIFIER.
   fixed_textt fstring;
+  /// This vector is of length 0 if the type is TEXT, and of length 1 if the
+  /// type is SPECIFIER.
   std::vector<string_constraint_generatort::format_specifiert> fspec;
 };
 
 #if 0
-// This code is deactivated as it is not used for now, but ultimalety this
+// This code is deactivated as it is not used for now, but ultimately this
 // should be used to throw an exception when the format string is not correct
 /// Used to check first argument of `String.format` is correct.
 /// \param s: a string
@@ -181,8 +204,8 @@ static bool check_format_string(std::string s)
 /// http://hg.openjdk.java.net/jdk7/jdk7/jdk/file/9b8c96f96a0f/src/share/classes/java/util/Formatter.java#l2660
 /// \param m: a match in a regular expression
 /// \return Format specifier represented by the matched string. The groups in
-///   the match should represent: index, flag, width, precision, date and
-///   conversion type.
+///   the match should represent: argument index, flag, width, precision, date
+///   and conversion type.
 static string_constraint_generatort::format_specifiert
   format_specifier_of_match(std::smatch &m)
 {
@@ -246,11 +269,12 @@ static exprt get_component_in_struct(
   return expr.operands()[number];
 }
 
-/// Parse `s` and add axioms ensuring the output corresponds to the output of
-/// String.format. Assumes the argument is a structured expression which
-/// contains the fields: string expr, int, float, char, boolean, hashcode,
-/// date_time. The correct component will be fetched depending on the format
-/// specifier.
+/// Given a format specifier, add axioms ensuring the output corresponds to the
+/// output of String.format applied to that specifier. Assumes the argument is a
+/// structured expression which contains the fields: string expr, int, float,
+/// char, boolean, hashcode, date_time. The correct component will be fetched
+/// depending on the format specifier. We do not yet support %o, %g, %G, %a, %A,
+/// %t and %T format specifiers.
 /// \param fs: a format specifier
 /// \param arg: a struct containing the possible value of the argument to format
 /// \param index_type: type for indexes in strings
@@ -326,8 +350,9 @@ string_constraint_generatort::add_axioms_for_format_specifier(
   case format_specifiert::HEXADECIMAL_FLOAT:
   /// \todo Conversion of hexadecimal float is not implemented.
   case format_specifiert::DATE_TIME:
-    /// \todo Conversion of date-time is not implemented
-    // For all these unimplemented cases we return a non-deterministic string
+    /// \todo Conversion of date-time is not implemented.
+    ///   For all these unimplemented cases we return a non-deterministic
+    ///   string.
     message.warning() << "unimplemented format specifier: " << fs.conversion
                         << message.eom;
     return fresh_string(index_type, char_type);
@@ -351,8 +376,14 @@ exprt string_constraint_generatort::add_axioms_for_format(
   const std::string &s,
   const exprt::operandst &args)
 {
+  // Split s into its format elements
   const std::vector<format_elementt> format_strings=parse_format_string(s);
+  // We will format each format element according to the specification of
+  // java.lang.String.format and store the results in a temporary vector
+  // variable.
   std::vector<array_string_exprt> formatted_elements;
+  // Number of format specifiers that we have processed that did not specify an
+  // argument index
   std::size_t arg_count=0;
   const typet &char_type = res.content().type().subtype();
   const typet &index_type = res.length().type();
@@ -363,6 +394,7 @@ exprt string_constraint_generatort::add_axioms_for_format(
     {
       const format_specifiert &fs=fe.get_format_specifier();
       struct_exprt arg;
+      // Per cent sign (%) and line separator (n) do not take any arguments.
       if(fs.conversion!=format_specifiert::PERCENT_SIGN &&
          fs.conversion!=format_specifiert::LINE_SEPARATOR)
       {
@@ -379,14 +411,14 @@ exprt string_constraint_generatort::add_axioms_for_format(
             static_cast<std::size_t>(fs.arg_index)<=args.size(),
             "number of format must match specifiers");
 
-          // first argument `args[0]` corresponds to index 1
+          // first argument `args[0]` corresponds to argument index 1
           arg=to_struct_expr(args[fs.arg_index-1]);
         }
       }
       formatted_elements.push_back(
         add_axioms_for_format_specifier(fs, arg, index_type, char_type));
     }
-    else
+    else // fe.is_fixed_text() == true
     {
       const array_string_exprt str = fresh_string(index_type, char_type);
       const exprt return_code =
@@ -438,16 +470,21 @@ utf16_constant_array_to_java(const array_exprt &arr, std::size_t length)
 /// Formatted string using a format string and list of arguments
 ///
 /// Add axioms to specify the Java String.format function.
-/// \todo This is correct only if the first argument (ie the format string) is
-/// constant or does not contain format specifiers.
-/// \param f: a function application
-/// \return A string expression representing the return value of the
-///   String.format function on the given arguments, assuming the first argument
-///   in the function application is a constant. Otherwise the first argument is
-///   returned.
+/// \todo This is correct only if the argument at index 2 (ie the format string)
+///   is of type constant_exprt.
+/// \param f: A function application whose first two arguments store the result
+///   of an application of java.lang.String.format. Its remaining arguments
+///   correspond to the arguments passed to this call to String.format. That is,
+///   the argument at index 2 is the format string, and arguments from index 3
+///   onwards are elements of what is called the argument list in
+///   https://docs.oracle.com/javase/7/docs/api/java/util/Formatter.html#syntax
+///   Axioms are added to the result, i.e. the first two arguments of this
+///   function application.
+/// \return code, 0 on success
 exprt string_constraint_generatort::add_axioms_for_format(
   const function_application_exprt &f)
 {
+  // Result and format string have to be present, argument list may be empty
   PRECONDITION(f.arguments().size() >= 3);
   const array_string_exprt res =
     char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
@@ -457,7 +494,7 @@ exprt string_constraint_generatort::add_axioms_for_format(
   if(format_string.length().id()==ID_constant &&
      format_string.content().id()==ID_array &&
      !to_unsigned_integer(to_constant_expr(format_string.length()), length))
-  {
+  { // format_string is constant
     std::string s=utf16_constant_array_to_java(
       to_array_expr(format_string.content()), length);
     // List of arguments after s
@@ -465,7 +502,7 @@ exprt string_constraint_generatort::add_axioms_for_format(
     return add_axioms_for_format(res, s, args);
   }
   else
-  {
+  { // format_string is nondeterministic
     message.warning()
       << "ignoring format function with non constant first argument"
       << message.eom;
