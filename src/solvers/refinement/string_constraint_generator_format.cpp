@@ -50,7 +50,7 @@ public:
   static const char LINE_SEPARATOR           ='n';
   static const char PERCENT_SIGN             ='%';
 
-  int index=-1;
+  int arg_index=-1;
   std::string flag;
   int width;
   int precision;
@@ -58,28 +58,28 @@ public:
   char conversion;
 
   format_specifiert(
-    int _index,
+    int _arg_index,
     std::string _flag,
     int _width,
     int _precision,
     bool _dt,
-    char c):
-      index(_index),
+    char _conversion):
+      arg_index(_arg_index),
       flag(_flag),
       width(_width),
       precision(_precision),
       dt(_dt),
-      conversion(c)
+      conversion(_conversion)
   { }
 };
 
 // Format text represent a constant part of a format string.
-class format_textt
+class fixed_textt
 {
 public:
-  explicit format_textt(std::string _content): content(_content) { }
+  explicit fixed_textt(std::string _content): content(_content) { }
 
-  format_textt(const format_textt &fs): content(fs.content) { }
+  fixed_textt(const fixed_textt &fs): content(fs.content) { }
 
   std::string get_content() const
   {
@@ -116,7 +116,7 @@ public:
     return type==SPECIFIER;
   }
 
-  bool is_format_text() const
+  bool is_fixed_text() const
   {
     return type==TEXT;
   }
@@ -127,21 +127,21 @@ public:
     return fspec.back();
   }
 
-  format_textt &get_format_text()
+  fixed_textt &get_fixed_text()
   {
-    PRECONDITION(is_format_text());
+    PRECONDITION(is_fixed_text());
     return fstring;
   }
 
-  const format_textt &get_format_text() const
+  const fixed_textt &get_fixed_text() const
   {
-    PRECONDITION(is_format_text());
+    PRECONDITION(is_fixed_text());
     return fstring;
   }
 
 private:
   format_typet type;
-  format_textt fstring;
+  fixed_textt fstring;
   std::vector<string_constraint_generatort::format_specifiert> fspec;
 };
 
@@ -186,7 +186,7 @@ static bool check_format_string(std::string s)
 static string_constraint_generatort::format_specifiert
   format_specifier_of_match(std::smatch &m)
 {
-  int index=m[1].str().empty()?-1:std::stoi(m[1].str());
+  int arg_index=m[1].str().empty()?-1:std::stoi(m[1].str());
   std::string flag=m[2].str().empty()?"":m[2].str();
   int width=m[3].str().empty()?-1:std::stoi(m[3].str());
   int precision=m[4].str().empty()?-1:std::stoi(m[4].str());
@@ -202,7 +202,7 @@ static string_constraint_generatort::format_specifiert
   char conversion=m[6].str()[0];
 
   return string_constraint_generatort::format_specifiert(
-    index, flag, width, precision, dt, conversion);
+    arg_index, flag, width, precision, dt, conversion);
 }
 
 /// Parse the given string into format specifiers and text.
@@ -215,7 +215,7 @@ static std::vector<format_elementt> parse_format_string(std::string s)
   std::string format_specifier=
     "%(\\d+\\$)?([-#+ 0,(\\<]*)?(\\d+)?(\\.\\d+)?([tT])?([a-zA-Z%])";
   std::regex regex(format_specifier);
-  std::vector<format_elementt> al;
+  std::vector<format_elementt> elements;
   std::smatch match;
 
   while(std::regex_search(s, match, regex))
@@ -223,15 +223,15 @@ static std::vector<format_elementt> parse_format_string(std::string s)
     if(match.position()!=0)
     {
       std::string pre_match=s.substr(0, match.position());
-      al.emplace_back(pre_match);
+      elements.emplace_back(pre_match);
     }
 
-    al.emplace_back(format_specifier_of_match(match));
+    elements.emplace_back(format_specifier_of_match(match));
     s=match.suffix();
   }
 
-  al.emplace_back(s);
-  return al;
+  elements.emplace_back(s);
+  return elements;
 }
 
 /// Helper for add_axioms_for_format_specifier
@@ -352,12 +352,13 @@ exprt string_constraint_generatort::add_axioms_for_format(
   const exprt::operandst &args)
 {
   const std::vector<format_elementt> format_strings=parse_format_string(s);
-  std::vector<array_string_exprt> intermediary_strings;
+  std::vector<array_string_exprt> formatted_elements;
   std::size_t arg_count=0;
   const typet &char_type = res.content().type().subtype();
   const typet &index_type = res.length().type();
 
   for(const format_elementt &fe : format_strings)
+  {
     if(fe.is_format_specifier())
     {
       const format_specifiert &fs=fe.get_format_specifier();
@@ -365,7 +366,7 @@ exprt string_constraint_generatort::add_axioms_for_format(
       if(fs.conversion!=format_specifiert::PERCENT_SIGN &&
          fs.conversion!=format_specifiert::LINE_SEPARATOR)
       {
-        if(fs.index==-1)
+        if(fs.arg_index == -1)
         {
           INVARIANT(
             arg_count<args.size(), "number of format must match specifiers");
@@ -373,34 +374,35 @@ exprt string_constraint_generatort::add_axioms_for_format(
         }
         else
         {
-          INVARIANT(fs.index>=0, "index in format should be positive");
+          INVARIANT(fs.arg_index>=0, "index in format should be positive");
           INVARIANT(
-            static_cast<std::size_t>(fs.index)<=args.size(),
+            static_cast<std::size_t>(fs.arg_index)<=args.size(),
             "number of format must match specifiers");
 
           // first argument `args[0]` corresponds to index 1
-          arg=to_struct_expr(args[fs.index-1]);
+          arg=to_struct_expr(args[fs.arg_index-1]);
         }
       }
-      intermediary_strings.push_back(
+      formatted_elements.push_back(
         add_axioms_for_format_specifier(fs, arg, index_type, char_type));
     }
     else
     {
       const array_string_exprt str = fresh_string(index_type, char_type);
       const exprt return_code =
-        add_axioms_for_constant(str, fe.get_format_text().get_content());
-      intermediary_strings.push_back(str);
+        add_axioms_for_constant(str, fe.get_fixed_text().get_content());
+      formatted_elements.push_back(str);
     }
+  }
 
-  if(intermediary_strings.empty())
+  if(formatted_elements.empty())
     return to_array_string_expr(
       array_exprt(array_typet(char_type, from_integer(0, index_type))));
 
-  auto it=intermediary_strings.begin();
+  auto it = formatted_elements.begin();
   array_string_exprt str = *(it++);
   exprt return_code = from_integer(0, signedbv_typet(32));
-  for(; it!=intermediary_strings.end(); ++it)
+  for(; it != formatted_elements.end(); ++it)
   {
     const array_string_exprt fresh = fresh_string(index_type, char_type);
     return_code =
@@ -449,15 +451,15 @@ exprt string_constraint_generatort::add_axioms_for_format(
   PRECONDITION(f.arguments().size() >= 3);
   const array_string_exprt res =
     char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
-  const array_string_exprt s1 = get_string_expr(f.arguments()[2]);
+  const array_string_exprt format_string = get_string_expr(f.arguments()[2]);
   unsigned int length;
 
-  if(s1.length().id()==ID_constant &&
-     s1.content().id()==ID_array &&
-     !to_unsigned_integer(to_constant_expr(s1.length()), length))
+  if(format_string.length().id()==ID_constant &&
+     format_string.content().id()==ID_array &&
+     !to_unsigned_integer(to_constant_expr(format_string.length()), length))
   {
     std::string s=utf16_constant_array_to_java(
-      to_array_expr(s1.content()), length);
+      to_array_expr(format_string.content()), length);
     // List of arguments after s
     std::vector<exprt> args(f.arguments().begin() + 3, f.arguments().end());
     return add_axioms_for_format(res, s, args);
