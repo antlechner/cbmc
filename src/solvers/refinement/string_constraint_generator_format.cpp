@@ -31,11 +31,13 @@ Date:   May 2017
 
 #include "format_element.h"
 #include "fixed_text.h"
-#include "format_specifier.h"
+#include "format_specifier_string.h"
 
 typedef string_constraint_generatort::format_elementt format_elementt;
 typedef string_constraint_generatort::fixed_textt fixed_textt;
 typedef string_constraint_generatort::format_specifiert format_specifiert;
+typedef string_constraint_generatort::format_specifier_stringt
+  format_specifier_stringt;
 
 #if 0
 // This code is deactivated as it is not used for now, but ultimately this
@@ -80,7 +82,7 @@ exprt string_constraint_generatort::add_axioms_for_format(
   const exprt::operandst &args)
 {
   // Split s into its format elements
-  const auto format_strings=format_specifiert::parse_format_string(s);
+  const auto format_strings=format_specifier_stringt::parse_format_string(s);
   // We will format each format element according to the specification of
   // java.lang.String.format and store the results in a temporary vector
   // variable.

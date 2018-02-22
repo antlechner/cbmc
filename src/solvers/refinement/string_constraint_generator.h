@@ -93,7 +93,8 @@ public:
   // Used by format function
   class format_elementt;
   class format_specifiert;
-  friend format_specifiert;
+  class format_specifier_stringt;
+  friend format_specifier_stringt;
   class fixed_textt;
   friend fixed_textt;
 

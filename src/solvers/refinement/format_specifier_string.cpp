@@ -12,7 +12,7 @@
 #include <regex>
 #include <vector>
 
-#include "format_specifier.h"
+#include "format_specifier_string.h"
 #include "format_element.h"
 #include "format_specifier.h"
 #include "fixed_text.h"
@@ -23,7 +23,10 @@ typedef string_constraint_generatort::format_elementt format_elementt;
 typedef string_constraint_generatort::format_specifiert format_specifiert;
 typedef string_constraint_generatort::fixed_textt fixed_textt;
 
-format_specifiert::format_specifiert(
+typedef string_constraint_generatort::format_specifier_stringt
+  format_specifier_stringt;
+
+format_specifier_stringt::format_specifier_stringt(
   int _arg_index,
   std::string _flag,
   int _width,
@@ -38,13 +41,42 @@ format_specifiert::format_specifiert(
     conversion(_conversion)
 { }
 
+/// Helper function for parsing format strings.
+/// This follows the implementation in openJDK of the java.util.Formatter class:
+/// http://hg.openjdk.java.net/jdk7/jdk7/jdk/file/9b8c96f96a0f/src/share/classes/java/util/Formatter.java#l2660
+/// \param m: a match in a regular expression
+/// \return Format specifier represented by the matched string. The groups in
+///   the match should represent: argument index, flag, width, precision, date
+///   and conversion type.
+std::unique_ptr<format_specifier_stringt>
+  format_specifier_stringt::format_specifier_of_match(std::smatch &m)
+{
+  int arg_index=m[1].str().empty()?-1:std::stoi(m[1].str());
+  std::string flag=m[2].str().empty()?"":m[2].str();
+  int width=m[3].str().empty()?-1:std::stoi(m[3].str());
+  int precision=m[4].str().empty()?-1:std::stoi(m[4].str());
+  std::string tT=m[5].str();
+
+  bool dt=(tT!="");
+  if(tT=="T")
+    flag.push_back(
+      DATE_TIME_UPPER);
+
+  INVARIANT(
+    m[6].str().length()==1, "format conversion should be one character");
+  char conversion=m[6].str()[0];
+
+  return util_make_unique<format_specifier_stringt>(
+    arg_index, flag, width, precision, dt, conversion);
+}
+
 /// Parse the given string into format specifiers and text.
 /// This follows the implementation in openJDK of the java.util.Formatter class:
 /// http://hg.openjdk.java.net/jdk7/jdk7/jdk/file/9b8c96f96a0f/src/share/classes/java/util/Formatter.java#l2513
 /// \param s: a string
 /// \return A vector of format_elementt.
 std::vector<std::unique_ptr<format_elementt>>
-format_specifiert::parse_format_string(std::string s)
+format_specifier_stringt::parse_format_string(std::string s)
 {
   std::string format_specifier=
     "%(\\d+\\$)?([-#+ 0,(\\<]*)?(\\d+)?(\\.\\d+)?([tT])?([a-zA-Z%])";
@@ -60,53 +92,13 @@ format_specifiert::parse_format_string(std::string s)
       elements.push_back(util_make_unique<fixed_textt>(pre_match));
     }
 
-    elements.push_back(format_specifiert::format_specifier_of_match(match));
+    elements.push_back(
+        format_specifier_stringt::format_specifier_of_match(match));
     s=match.suffix();
   }
 
   elements.push_back(util_make_unique<fixed_textt>(s));
   return elements;
-}
-
-/// Helper function for parsing format strings.
-/// This follows the implementation in openJDK of the java.util.Formatter class:
-/// http://hg.openjdk.java.net/jdk7/jdk7/jdk/file/9b8c96f96a0f/src/share/classes/java/util/Formatter.java#l2660
-/// \param m: a match in a regular expression
-/// \return Format specifier represented by the matched string. The groups in
-///   the match should represent: argument index, flag, width, precision, date
-///   and conversion type.
-std::unique_ptr<format_specifiert>
-format_specifiert::format_specifier_of_match(std::smatch &m)
-{
-  int arg_index=m[1].str().empty()?-1:std::stoi(m[1].str());
-  std::string flag=m[2].str().empty()?"":m[2].str();
-  int width=m[3].str().empty()?-1:std::stoi(m[3].str());
-  int precision=m[4].str().empty()?-1:std::stoi(m[4].str());
-  std::string tT=m[5].str();
-
-  bool dt=(tT!="");
-  if(tT=="T")
-    flag.push_back(
-      format_specifiert::DATE_TIME_UPPER);
-
-  INVARIANT(
-    m[6].str().length()==1, "format conversion should be one character");
-  char conversion=m[6].str()[0];
-
-  return util_make_unique<format_specifiert>(
-    arg_index, flag, width, precision, dt, conversion);
-}
-
-/// Helper for add_axioms_for_format_specifier
-/// \param expr: a structured expression
-/// \param component_name: name of the desired component
-/// \return Expression in the component of `expr` named `component_name`.
-static exprt get_component_in_struct(
-  const struct_exprt &expr, irep_idt component_name)
-{
-  const struct_typet &type=to_struct_type(expr.type());
-  std::size_t number=type.component_number(component_name);
-  return expr.operands()[number];
 }
 
 /// Given a format specifier, add axioms ensuring the output corresponds to the
@@ -123,7 +115,7 @@ static exprt get_component_in_struct(
 /// the output of String.format. The return code is 0 on success, 1 for invalid
 /// format specifiers and 100 for format specifiers that we do not yet support.
 std::pair<exprt, array_string_exprt>
-format_specifiert::add_axioms_for_format_specifier(
+format_specifier_stringt::add_axioms_for_format_specifier(
   string_constraint_generatort &gen,
   const struct_exprt &arg,
   const typet &index_type,
@@ -183,7 +175,7 @@ format_specifiert::add_axioms_for_format_specifier(
   case STRING_UPPER:
   case HASHCODE_UPPER:
   {
-    format_specifiert fs_lower=*this;
+    format_specifier_stringt fs_lower=*this;
     fs_lower.conversion=tolower(conversion);
     const auto lower_case_code_format_pair =
       fs_lower.add_axioms_for_format_specifier(
@@ -237,7 +229,7 @@ format_specifiert::add_axioms_for_format_specifier(
 /// invalid conversion characters, 2 for an insufficient number of arguments,
 /// and 100 for format specifiers that we do not yet support.
 std::pair<exprt, array_string_exprt>
-format_specifiert::add_axioms_for_format_element(
+format_specifier_stringt::add_axioms_for_format_element(
   string_constraint_generatort &gen,
   std::size_t &arg_count,
   const typet &index_type,
