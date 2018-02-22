@@ -23,17 +23,38 @@ Date:   May 2017
 #include <regex>
 #include <vector>
 
+#include <util/make_unique.h>
 #include <util/std_expr.h>
 #include <util/unicode.h>
 
 #include "string_constraint_generator.h"
+
+/// A format string consists of format elements. Each type of format element has
+/// its own rules for formatting.
+class string_constraint_generatort::format_elementt
+{
+protected:
+  format_elementt() = default;
+
+public:
+  virtual ~format_elementt() = default;
+
+  virtual std::pair<exprt, array_string_exprt> add_axioms_for_format_element(
+    string_constraint_generatort &gen,
+    std::size_t &arg_count,
+    const typet &index_type,
+    const typet &char_type,
+    const exprt::operandst &args) = 0;
+};
+
 
 /// A format specifier is of the form
 /// %[arg_index$][flags][width][.precision]conversion
 /// and is applied to an element of the argument list passed to String.format.
 /// It describes how this value should be printed. For details see
 /// https://docs.oracle.com/javase/7/docs/api/java/util/Formatter.html#syntax
-class string_constraint_generatort::format_specifiert
+class string_constraint_generatort::format_specifiert :
+  public string_constraint_generatort::format_elementt
 {
 public:
   // Constants describing the meaning of conversion characters in format
@@ -84,11 +105,243 @@ public:
       dt(_dt),
       conversion(_conversion)
   { }
+
+  /// Helper function for parsing format strings.
+  /// This follows the implementation in openJDK of the java.util.Formatter class:
+  /// http://hg.openjdk.java.net/jdk7/jdk7/jdk/file/9b8c96f96a0f/src/share/classes/java/util/Formatter.java#l2660
+  /// \param m: a match in a regular expression
+  /// \return Format specifier represented by the matched string. The groups in
+  ///   the match should represent: argument index, flag, width, precision, date
+  ///   and conversion type.
+  static std::unique_ptr<format_specifiert>
+    format_specifier_of_match(std::smatch &m)
+  {
+    int arg_index=m[1].str().empty()?-1:std::stoi(m[1].str());
+    std::string flag=m[2].str().empty()?"":m[2].str();
+    int width=m[3].str().empty()?-1:std::stoi(m[3].str());
+    int precision=m[4].str().empty()?-1:std::stoi(m[4].str());
+    std::string tT=m[5].str();
+
+    bool dt=(tT!="");
+    if(tT=="T")
+      flag.push_back(
+        format_specifiert::DATE_TIME_UPPER);
+
+    INVARIANT(
+      m[6].str().length()==1, "format conversion should be one character");
+    char conversion=m[6].str()[0];
+
+    return util_make_unique<format_specifiert>(
+      arg_index, flag, width, precision, dt, conversion);
+  }
+
+  /// Helper for add_axioms_for_format_specifier
+  /// \param expr: a structured expression
+  /// \param component_name: name of the desired component
+  /// \return Expression in the component of `expr` named `component_name`.
+  static exprt get_component_in_struct(
+    const struct_exprt &expr, irep_idt component_name)
+  {
+    const struct_typet &type=to_struct_type(expr.type());
+    std::size_t number=type.component_number(component_name);
+    return expr.operands()[number];
+  }
+
+  /// Given a format specifier, add axioms ensuring the output corresponds to the
+  /// output of String.format applied to that specifier. Assumes the argument is a
+  /// structured expression which contains the fields: string expr, int, float,
+  /// char, boolean, hashcode, date_time. The correct component will be fetched
+  /// depending on the format specifier. We do not yet support %o, %g, %G, %a, %A,
+  /// %t and %T format specifiers.
+  /// \param fs: a format specifier
+  /// \param arg: a struct containing the possible value of the argument to format
+  /// \param index_type: type for indexes in strings
+  /// \param char_type: type of characters
+  /// \return Pair consisting of return code and string expression representing
+  /// the output of String.format. The return code is 0 on success, 1 for invalid
+  /// format specifiers and 100 for format specifiers that we do not yet support.
+  std::pair<exprt, array_string_exprt> add_axioms_for_format_specifier(
+    string_constraint_generatort &gen,
+    const struct_exprt &arg,
+    const typet &index_type,
+    const typet &char_type)
+  {
+    const array_string_exprt res = gen.fresh_string(index_type, char_type);
+    exprt return_code;
+    switch(conversion)
+    {
+    case DECIMAL_INTEGER:
+      return_code =
+        gen.add_axioms_from_int(res, get_component_in_struct(arg, ID_int));
+      return {return_code, res};
+    case HEXADECIMAL_INTEGER:
+      return_code =
+        gen.add_axioms_from_int_hex(res, get_component_in_struct(arg, ID_int));
+      return {return_code, res};
+    case SCIENTIFIC:
+      gen.add_axioms_from_float_scientific_notation(
+        res, get_component_in_struct(arg, ID_float));
+      return {return_code, res};
+    case DECIMAL_FLOAT:
+      gen.add_axioms_for_string_of_float(res, get_component_in_struct(arg, ID_float));
+      return {return_code, res};
+    case CHARACTER:
+      return_code =
+        gen.add_axioms_from_char(res, get_component_in_struct(arg, ID_char));
+      return {return_code, res};
+    case BOOLEAN:
+      return_code =
+        gen.add_axioms_from_bool(res, get_component_in_struct(arg, ID_boolean));
+      return {return_code, res};
+    case STRING:
+    {
+      return_code = from_integer(0, gen.get_return_code_type());
+      const array_string_exprt string_res = gen.get_string_expr(
+          get_component_in_struct(arg, "string_expr"));
+      return {return_code, string_res};
+    }
+    case HASHCODE:
+      return_code =
+        gen.add_axioms_from_int(res, get_component_in_struct(arg, "hashcode"));
+      return {return_code, res};
+    case LINE_SEPARATOR:
+      // TODO: the constant should depend on the system: System.lineSeparator()
+      return_code = gen.add_axioms_for_constant(res, "\n");
+      return {return_code, res};
+    case PERCENT_SIGN:
+      return_code = gen.add_axioms_for_constant(res, "%");
+      return {return_code, res};
+    case SCIENTIFIC_UPPER:
+    case GENERAL_UPPER:
+    case HEXADECIMAL_FLOAT_UPPER:
+    case CHARACTER_UPPER:
+    case DATE_TIME_UPPER:
+    case BOOLEAN_UPPER:
+    case STRING_UPPER:
+    case HASHCODE_UPPER:
+    {
+      format_specifiert fs_lower=*this;
+      fs_lower.conversion=tolower(conversion);
+      const auto lower_case_code_format_pair =
+        fs_lower.add_axioms_for_format_specifier(
+            gen, arg, index_type, char_type);
+      gen.add_axioms_for_to_upper_case(res, lower_case_code_format_pair.second);
+      return {lower_case_code_format_pair.first, res};
+    }
+    case OCTAL_INTEGER:
+    /// \todo Conversion of octal is not implemented.
+    case GENERAL:
+    /// \todo Conversion for format specifier general is not implemented.
+    case HEXADECIMAL_FLOAT:
+    /// \todo Conversion of hexadecimal float is not implemented.
+    case DATE_TIME:
+      /// \todo Conversion of date-time is not implemented.
+      ///   For all these unimplemented cases we return a non-deterministic
+      ///   string.
+      gen.message.warning() << "unimplemented format specifier: " << conversion
+                          << gen.message.eom;
+      return_code = from_integer(100, gen.get_return_code_type());
+      return {return_code, res};
+    default:
+      /// \todo Throwing exceptions for invalid format specifiers is not yet
+      ///   implemented. In Java, a java.util.UnknownFormatConversionException is
+      ///   thrown in this case. Instead, we currently just return a
+      ///   nondeterministic string.
+      gen.message.error() << "invalid format specifier: " << conversion
+        << ". format specifier must belong to [bBhHsScCdoxXeEfgGaAtT%n]"
+        << gen.message.eom;
+      return_code = from_integer(1, gen.get_return_code_type());
+      return {return_code, res};
+    }
+  }
+
+  /// Given a format element, add axioms ensuring the output corresponds to the
+  /// output of String.format applied to that specifier with the given argument
+  /// list.
+  /// In the case of format specifiers, we first need to check for specifiers
+  /// that correspond to exception cases in the Java program. Then the
+  /// formatting is done by a call to add_axioms_for_format_specifier.
+  /// \param gen: a `string_constraint_generatort` object (used for accessing
+  ///   some of the member functions of this class)
+  /// \param arg_count: the number of arguments in the argument list that have
+  ///   already been processed using format specifiers without argument index
+  /// \param index_type: type for indices in strings
+  /// \param char_type: type of characters in strings
+  /// \param args: argument list passed to String.format method
+  /// \return Pair consisting of return code and string expression representing
+  /// the output of String.format. The return code is 0 on success, 1 for
+  /// invalid conversion characters, 2 for an insufficient number of arguments,
+  /// and 100 for format specifiers that we do not yet support.
+  std::pair<exprt, array_string_exprt> add_axioms_for_format_element(
+    string_constraint_generatort &gen,
+    std::size_t &arg_count,
+    const typet &index_type,
+    const typet &char_type,
+    const exprt::operandst &args)
+  {
+    struct_exprt arg;
+    // Per cent sign (%) and line separator (n) do not take any arguments.
+    if(conversion!=PERCENT_SIGN &&
+       conversion!=LINE_SEPARATOR)
+    {
+      // -1 means no value specified. 0 is a special case that is treated by
+      // Java as if no value was specified.
+      if(arg_index == -1 || arg_index == 0)
+      {
+        /// \todo In java, a java.util.MissingFormatArgumentException is
+        ///   thrown when the number of arguments is less than the number of
+        ///   format specifiers without argument index. We do not yet support
+        ///   throwing the exception in this case and instead do not put any
+        ///   additional constraints on the string.
+        if(arg_count >= args.size())
+        {
+          gen.message.warning() << "number of arguments must be at least number "
+                            << "of format specifiers without argument index"
+                            << gen.message.eom;
+          return {from_integer(2, gen.get_return_code_type()),
+                  gen.fresh_string(index_type, char_type)};
+        }
+        arg=to_struct_expr(args[arg_count++]);
+      }
+      else
+      {
+        /// \todo In Java, a java.util.UnknownFormatConversionException is
+        ///   thrown when the argument index in the format specifier is
+        ///   negative. We do not yet support throwing the exception in this
+        ///   case and instead do not put any additional constraints on the
+        ///   string.
+        if(arg_index < 0)
+        {
+          gen.message.warning() << "index in format should be nonnegative"
+                            << gen.message.eom;
+          return {from_integer(1, gen.get_return_code_type()),
+                  gen.fresh_string(index_type, char_type)};
+        }
+        /// \todo In Java, a java.util.MissingFormatArgumentException is
+        ///   thrown when the argument index in the format specifier is bigger
+        ///   than the number of arguments. We do not yet support throwing the
+        ///   exception in this case and instead do not put any additional
+        ///   constraints on the string.
+        if(static_cast<std::size_t>(arg_index) > args.size())
+        {
+          gen.message.warning() << "argument index in format specifier cannot be "
+                            << "bigger than number of arguments"
+                            << gen.message.eom;
+          return {from_integer(2, gen.get_return_code_type()),
+                  gen.fresh_string(index_type, char_type)};
+        }
+        // first argument `args[0]` corresponds to argument index 1
+        arg=to_struct_expr(args[arg_index-1]);
+      }
+    }
+    return add_axioms_for_format_specifier(gen, arg, index_type, char_type);
+  }
+
 };
 
 /// Class to represent fixed text in a format string. The contents of it are
 /// unchanged by calls to java.lang.String.format.
-class fixed_textt
+class string_constraint_generatort::fixed_textt : public format_elementt
 {
 public:
   explicit fixed_textt(std::string _content): content(_content) { }
@@ -100,80 +353,38 @@ public:
     return content;
   }
 
+  /// Given a format element, add axioms ensuring the output corresponds to the
+  /// output of String.format applied to that specifier with the given argument
+  /// list.
+  /// In the case of fixed text, we simply add an axiom for a constant string
+  /// storing the value corresponding to the fixed text.
+  /// \param gen: a `string_constraint_generatort` object (used for accessing
+  ///   some of the member functions of this class)
+  /// \param index_type: type for indices in strings
+  /// \param char_type: type of characters in strings
+  /// \return Pair consisting of return code and string expression representing
+  /// the output of String.format. The return code is 0 on success, and the
+  /// string expression represents the constant content of the fixed text.
+  std::pair<exprt, array_string_exprt> add_axioms_for_format_element(
+    string_constraint_generatort &gen,
+    std::size_t &,
+    const typet &index_type,
+    const typet &char_type,
+    const exprt::operandst &)
+  {
+    const array_string_exprt res = gen.fresh_string(index_type, char_type);
+    const exprt return_code =
+      gen.add_axioms_for_constant(res, get_content());
+    return {return_code, res};
+  }
+
 private:
   std::string content;
 };
 
-/// A format string consists of format elements. A format element is either a
-/// format specifier or fixed text.
-class format_elementt
-{
-public:
-  /// Type representing the two different types of format elements
-  typedef enum {SPECIFIER, TEXT} format_typet;
-
-  /// Given only a `format_typet` and no further information, we assign this to
-  /// the `type` of this format element and leave the `fstring` field set to the
-  /// empty string.
-  explicit format_elementt(format_typet _type): type(_type), fstring("")
-  {
-  }
-
-  /// A string argument means that this format element is a fixed text.
-  explicit format_elementt(std::string s): type(TEXT), fstring(s)
-  {
-  }
-
-  /// A format specifier argument means that this format element is a format
-  /// specifier.
-  explicit format_elementt(string_constraint_generatort::format_specifiert fs):
-    type(SPECIFIER),
-    fstring("")
-  {
-    fspec.push_back(fs);
-  }
-
-  // Getters and setters
-
-  bool is_format_specifier() const
-  {
-    return type==SPECIFIER;
-  }
-
-  bool is_fixed_text() const
-  {
-    return type==TEXT;
-  }
-
-  string_constraint_generatort::format_specifiert get_format_specifier() const
-  {
-    PRECONDITION(is_format_specifier());
-    return fspec.back();
-  }
-
-  fixed_textt &get_fixed_text()
-  {
-    PRECONDITION(is_fixed_text());
-    return fstring;
-  }
-
-  const fixed_textt &get_fixed_text() const
-  {
-    PRECONDITION(is_fixed_text());
-    return fstring;
-  }
-
-private:
-  /// Type of this format element: format specifier (SPECIFIER) or fixed text
-  /// (TEXT)
-  format_typet type;
-  /// String storing the fixed text if the object is of type TEXT, and storing
-  /// the empty string if it is of type SPECIFIER.
-  fixed_textt fstring;
-  /// This vector is of length 0 if the type is TEXT, and of length 1 if the
-  /// type is SPECIFIER.
-  std::vector<string_constraint_generatort::format_specifiert> fspec;
-};
+typedef string_constraint_generatort::format_elementt format_elementt;
+typedef string_constraint_generatort::fixed_textt fixed_textt;
+typedef string_constraint_generatort::format_specifiert format_specifiert;
 
 #if 0
 // This code is deactivated as it is not used for now, but ultimately this
@@ -206,46 +417,18 @@ static bool check_format_string(std::string s)
 }
 #endif
 
-/// Helper function for parsing format strings.
-/// This follows the implementation in openJDK of the java.util.Formatter class:
-/// http://hg.openjdk.java.net/jdk7/jdk7/jdk/file/9b8c96f96a0f/src/share/classes/java/util/Formatter.java#l2660
-/// \param m: a match in a regular expression
-/// \return Format specifier represented by the matched string. The groups in
-///   the match should represent: argument index, flag, width, precision, date
-///   and conversion type.
-static string_constraint_generatort::format_specifiert
-  format_specifier_of_match(std::smatch &m)
-{
-  int arg_index=m[1].str().empty()?-1:std::stoi(m[1].str());
-  std::string flag=m[2].str().empty()?"":m[2].str();
-  int width=m[3].str().empty()?-1:std::stoi(m[3].str());
-  int precision=m[4].str().empty()?-1:std::stoi(m[4].str());
-  std::string tT=m[5].str();
-
-  bool dt=(tT!="");
-  if(tT=="T")
-    flag.push_back(
-      string_constraint_generatort::format_specifiert::DATE_TIME_UPPER);
-
-  INVARIANT(
-    m[6].str().length()==1, "format conversion should be one character");
-  char conversion=m[6].str()[0];
-
-  return string_constraint_generatort::format_specifiert(
-    arg_index, flag, width, precision, dt, conversion);
-}
-
 /// Parse the given string into format specifiers and text.
 /// This follows the implementation in openJDK of the java.util.Formatter class:
 /// http://hg.openjdk.java.net/jdk7/jdk7/jdk/file/9b8c96f96a0f/src/share/classes/java/util/Formatter.java#l2513
 /// \param s: a string
 /// \return A vector of format_elementt.
-static std::vector<format_elementt> parse_format_string(std::string s)
+static std::vector<std::unique_ptr<format_elementt>>
+parse_format_string(std::string s)
 {
   std::string format_specifier=
     "%(\\d+\\$)?([-#+ 0,(\\<]*)?(\\d+)?(\\.\\d+)?([tT])?([a-zA-Z%])";
   std::regex regex(format_specifier);
-  std::vector<format_elementt> elements;
+  std::vector<std::unique_ptr<format_elementt>> elements;
   std::smatch match;
 
   while(std::regex_search(s, match, regex))
@@ -253,135 +436,15 @@ static std::vector<format_elementt> parse_format_string(std::string s)
     if(match.position()!=0)
     {
       std::string pre_match=s.substr(0, match.position());
-      elements.emplace_back(pre_match);
+      elements.push_back(util_make_unique<fixed_textt>(pre_match));
     }
 
-    elements.emplace_back(format_specifier_of_match(match));
+    elements.push_back(format_specifiert::format_specifier_of_match(match));
     s=match.suffix();
   }
 
-  elements.emplace_back(s);
+  elements.push_back(util_make_unique<fixed_textt>(s));
   return elements;
-}
-
-/// Helper for add_axioms_for_format_specifier
-/// \param expr: a structured expression
-/// \param component_name: name of the desired component
-/// \return Expression in the component of `expr` named `component_name`.
-static exprt get_component_in_struct(
-  const struct_exprt &expr, irep_idt component_name)
-{
-  const struct_typet &type=to_struct_type(expr.type());
-  std::size_t number=type.component_number(component_name);
-  return expr.operands()[number];
-}
-
-/// Given a format specifier, add axioms ensuring the output corresponds to the
-/// output of String.format applied to that specifier. Assumes the argument is a
-/// structured expression which contains the fields: string expr, int, float,
-/// char, boolean, hashcode, date_time. The correct component will be fetched
-/// depending on the format specifier. We do not yet support %o, %g, %G, %a, %A,
-/// %t and %T format specifiers.
-/// \param fs: a format specifier
-/// \param arg: a struct containing the possible value of the argument to format
-/// \param index_type: type for indexes in strings
-/// \param char_type: type of characters
-/// \return Pair consisting of return code and string expression representing
-/// the output of String.format. The return code is 0 on success, 1 for invalid
-/// format specifiers and 100 for format specifiers that we do not yet support.
-std::pair<exprt, array_string_exprt>
-string_constraint_generatort::add_axioms_for_format_specifier(
-  const format_specifiert &fs,
-  const struct_exprt &arg,
-  const typet &index_type,
-  const typet &char_type)
-{
-  const array_string_exprt res = fresh_string(index_type, char_type);
-  exprt return_code;
-  switch(fs.conversion)
-  {
-  case format_specifiert::DECIMAL_INTEGER:
-    return_code =
-      add_axioms_from_int(res, get_component_in_struct(arg, ID_int));
-    return {return_code, res};
-  case format_specifiert::HEXADECIMAL_INTEGER:
-    return_code =
-      add_axioms_from_int_hex(res, get_component_in_struct(arg, ID_int));
-    return {return_code, res};
-  case format_specifiert::SCIENTIFIC:
-    add_axioms_from_float_scientific_notation(
-      res, get_component_in_struct(arg, ID_float));
-    return {return_code, res};
-  case format_specifiert::DECIMAL_FLOAT:
-    add_axioms_for_string_of_float(res, get_component_in_struct(arg, ID_float));
-    return {return_code, res};
-  case format_specifiert::CHARACTER:
-    return_code =
-      add_axioms_from_char(res, get_component_in_struct(arg, ID_char));
-    return {return_code, res};
-  case format_specifiert::BOOLEAN:
-    return_code =
-      add_axioms_from_bool(res, get_component_in_struct(arg, ID_boolean));
-    return {return_code, res};
-  case format_specifiert::STRING:
-  {
-    return_code = from_integer(0, get_return_code_type());
-    const array_string_exprt string_res = get_string_expr(
-        get_component_in_struct(arg, "string_expr"));
-    return {return_code, string_res};
-  }
-  case format_specifiert::HASHCODE:
-    return_code =
-      add_axioms_from_int(res, get_component_in_struct(arg, "hashcode"));
-    return {return_code, res};
-  case format_specifiert::LINE_SEPARATOR:
-    // TODO: the constant should depend on the system: System.lineSeparator()
-    return_code = add_axioms_for_constant(res, "\n");
-    return {return_code, res};
-  case format_specifiert::PERCENT_SIGN:
-    return_code = add_axioms_for_constant(res, "%");
-    return {return_code, res};
-  case format_specifiert::SCIENTIFIC_UPPER:
-  case format_specifiert::GENERAL_UPPER:
-  case format_specifiert::HEXADECIMAL_FLOAT_UPPER:
-  case format_specifiert::CHARACTER_UPPER:
-  case format_specifiert::DATE_TIME_UPPER:
-  case format_specifiert::BOOLEAN_UPPER:
-  case format_specifiert::STRING_UPPER:
-  case format_specifiert::HASHCODE_UPPER:
-  {
-    string_constraint_generatort::format_specifiert fs_lower=fs;
-    fs_lower.conversion=tolower(fs.conversion);
-    const auto lower_case_code_format_pair =
-      add_axioms_for_format_specifier(fs_lower, arg, index_type, char_type);
-    add_axioms_for_to_upper_case(res, lower_case_code_format_pair.second);
-    return {lower_case_code_format_pair.first, res};
-  }
-  case format_specifiert::OCTAL_INTEGER:
-  /// \todo Conversion of octal is not implemented.
-  case format_specifiert::GENERAL:
-  /// \todo Conversion for format specifier general is not implemented.
-  case format_specifiert::HEXADECIMAL_FLOAT:
-  /// \todo Conversion of hexadecimal float is not implemented.
-  case format_specifiert::DATE_TIME:
-    /// \todo Conversion of date-time is not implemented.
-    ///   For all these unimplemented cases we return a non-deterministic
-    ///   string.
-    message.warning() << "unimplemented format specifier: " << fs.conversion
-                        << message.eom;
-    return_code = from_integer(100, get_return_code_type());
-    return {return_code, res};
-  default:
-    /// \todo Throwing exceptions for invalid format specifiers is not yet
-    ///   implemented. In Java, a java.util.UnknownFormatConversionException is
-    ///   thrown in this case. Instead, we currently just return a
-    ///   nondeterministic string.
-    message.error() << "invalid format specifier: " << fs.conversion
-      << ". format specifier must belong to [bBhHsScCdoxXeEfgGaAtT%n]"
-      << message.eom;
-    return_code = from_integer(1, get_return_code_type());
-    return {return_code, res};
-  }
 }
 
 /// Parse `s` and add axioms ensuring the output corresponds to the output of
@@ -396,7 +459,7 @@ exprt string_constraint_generatort::add_axioms_for_format(
   const exprt::operandst &args)
 {
   // Split s into its format elements
-  const std::vector<format_elementt> format_strings=parse_format_string(s);
+  const auto format_strings=parse_format_string(s);
   // We will format each format element according to the specification of
   // java.lang.String.format and store the results in a temporary vector
   // variable.
@@ -407,81 +470,19 @@ exprt string_constraint_generatort::add_axioms_for_format(
   const typet &char_type = res.content().type().subtype();
   const typet &index_type = res.length().type();
 
-  for(const format_elementt &fe : format_strings)
+  for(const auto &format : format_strings)
   {
-    if(fe.is_format_specifier())
+    const auto code_format_pair =
+      format->add_axioms_for_format_element(
+          *this, arg_count, index_type, char_type, args);
+    if(code_format_pair.first != from_integer(0, get_return_code_type()))
     {
-      const format_specifiert &fs=fe.get_format_specifier();
-      struct_exprt arg;
-      // Per cent sign (%) and line separator (n) do not take any arguments.
-      if(fs.conversion!=format_specifiert::PERCENT_SIGN &&
-         fs.conversion!=format_specifiert::LINE_SEPARATOR)
-      {
-        // -1 means no value specified. 0 is a special case that is treated by
-        // Java as if no value was specified.
-        if(fs.arg_index == -1 || fs.arg_index == 0)
-        {
-          /// \todo In java, a java.util.MissingFormatArgumentException is
-          ///   thrown when the number of arguments is less than the number of
-          ///   format specifiers without argument index. We do not yet support
-          ///   throwing the exception in this case and instead do not put any
-          ///   additional constraints on the string.
-          if(arg_count >= args.size())
-          {
-            message.warning() << "number of arguments must be at least number "
-                              << "of format specifiers without argument index"
-                              << message.eom;
-            return from_integer(2, get_return_code_type());
-          }
-          arg=to_struct_expr(args[arg_count++]);
-        }
-        else
-        {
-          /// \todo In Java, a java.util.UnknownFormatConversionException is
-          ///   thrown when the argument index in the format specifier is
-          ///   negative. We do not yet support throwing the exception in this
-          ///   case and instead do not put any additional constraints on the
-          ///   string.
-          if(fs.arg_index < 0)
-          {
-            message.warning() << "index in format should be nonnegative"
-                              << message.eom;
-            return from_integer(1, get_return_code_type());
-          }
-          /// \todo In Java, a java.util.MissingFormatArgumentException is
-          ///   thrown when the argument index in the format specifier is bigger
-          ///   than the number of arguments. We do not yet support throwing the
-          ///   exception in this case and instead do not put any additional
-          ///   constraints on the string.
-          if(static_cast<std::size_t>(fs.arg_index) > args.size())
-          {
-            message.warning() << "argument index in format specifier cannot be "
-                              << "bigger than number of arguments"
-                              << message.eom;
-            return from_integer(2, get_return_code_type());
-          }
-          // first argument `args[0]` corresponds to argument index 1
-          arg=to_struct_expr(args[fs.arg_index-1]);
-        }
-      }
-      const auto code_format_pair =
-        add_axioms_for_format_specifier(fs, arg, index_type, char_type);
-      if(code_format_pair.first
-            != from_integer(0, get_return_code_type()))
-      {
-        // A nonzero exit code means an exception was thrown.
-        /// \todo Add support for exceptions in add_axioms_for_format_specifier
-        return code_format_pair.first;
-      }
-      formatted_elements.push_back(code_format_pair.second);
+      // A nonzero exit code means an exception was thrown.
+      /// \todo Add support for exceptions
+      return code_format_pair.first;
     }
-    else // fe.is_fixed_text() == true
-    {
-      const array_string_exprt str = fresh_string(index_type, char_type);
-      const exprt return_code =
-        add_axioms_for_constant(str, fe.get_fixed_text().get_content());
-      formatted_elements.push_back(str);
-    }
+    const auto string_expr = code_format_pair.second;
+    formatted_elements.push_back(string_expr);
   }
 
   if(formatted_elements.empty())

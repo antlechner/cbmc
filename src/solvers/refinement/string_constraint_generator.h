@@ -91,7 +91,11 @@ public:
   // to the axiom list.
 
   // Used by format function
+  class format_elementt;
   class format_specifiert;
+  friend format_specifiert;
+  class fixed_textt;
+  friend fixed_textt;
 
   /// Arguments pack for the string_constraint_generator constructor
   struct infot
