@@ -92,11 +92,14 @@ public:
 
   // Used by format function
   class format_elementt;
+  class fixed_textt;
+  friend fixed_textt;
   class format_specifiert;
   class format_specifier_stringt;
   friend format_specifier_stringt;
-  class fixed_textt;
-  friend fixed_textt;
+  class format_specifier_datet;
+  friend format_specifier_datet;
+  class format_element_invalidt;
 
   /// Arguments pack for the string_constraint_generator constructor
   struct infot
@@ -242,6 +245,11 @@ private:
     const array_string_exprt &res,
     const std::string &s,
     const exprt::operandst &args);
+
+  exprt add_axioms_for_date_format(const function_application_exprt &f);
+  exprt add_axioms_for_date_format(
+    const array_string_exprt &res,
+    const std::string &s);
 
   std::pair<exprt, array_string_exprt> add_axioms_for_format_specifier(
     const format_specifiert &fs,
