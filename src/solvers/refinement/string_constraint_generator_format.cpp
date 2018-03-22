@@ -90,10 +90,10 @@ exprt string_constraint_generatort::add_axioms_for_string_format(
 /// \param length: an unsigned value representing the length of the array
 /// \return String of length `length` represented by the array assuming each
 ///   field in `arr` represents a character.
-std::string
-utf16_constant_array_to_java(const array_exprt &arr, std::size_t length)
+static std::string
+array_exprt_to_string(const array_exprt &arr, std::size_t length)
 {
-  std::wstring out(length, '?');
+  std::string out(length, '?');
   unsigned int c;
   for(std::size_t i=0; i<arr.operands().size() && i<length; i++)
   {
@@ -103,7 +103,21 @@ utf16_constant_array_to_java(const array_exprt &arr, std::size_t length)
     INVARIANT(!conversion_failed, "constant should be convertible to unsigned");
     out[i]=c;
   }
-  return utf16_little_endian_to_java(out);
+  return out;
+}
+
+/// Construct a string from a constant array, escaping characters where
+/// necessary. To be used in debugging output.
+/// \param arr: an array expression containing only constants
+/// \param length: an unsigned value representing the length of the array
+/// \return String of length `length` represented by the array assuming each
+///   field in `arr` represents a character.
+std::string
+utf16_constant_array_to_java(const array_exprt &arr, std::size_t length)
+{
+  std::string s(array_exprt_to_string(arr, length));
+  return utf16_little_endian_to_java(
+      std::wstring(s.begin(), s.end()));
 }
 
 /// Formatted string using a format string and list of arguments
@@ -132,7 +146,7 @@ exprt string_constraint_generatort::add_axioms_for_string_format(
 
   if(length && format_string.content().id()==ID_array)
   { // format_string is constant
-    std::string s=utf16_constant_array_to_java(
+    std::string s=array_exprt_to_string(
       to_array_expr(format_string.content()), *length);
     // List of arguments after s
     std::vector<exprt> args(f.arguments().begin() + 3, f.arguments().end());
