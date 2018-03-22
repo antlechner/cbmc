@@ -249,7 +249,8 @@ private:
   exprt add_axioms_for_date_format(const function_application_exprt &f);
   exprt add_axioms_for_date_format(
     const array_string_exprt &res,
-    const std::string &s);
+    const std::string &s,
+    const exprt::operandst &args);
 
   std::pair<exprt, array_string_exprt> add_axioms_for_format_specifier(
     const format_specifiert &fs,

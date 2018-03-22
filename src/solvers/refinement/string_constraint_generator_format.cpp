@@ -32,12 +32,15 @@ Date:   May 2017
 #include "format_element.h"
 #include "fixed_text.h"
 #include "format_specifier_string.h"
+#include "format_specifier_date.h"
 
 typedef string_constraint_generatort::format_elementt format_elementt;
 typedef string_constraint_generatort::fixed_textt fixed_textt;
 typedef string_constraint_generatort::format_specifiert format_specifiert;
 typedef string_constraint_generatort::format_specifier_stringt
   format_specifier_stringt;
+typedef string_constraint_generatort::format_specifier_datet
+  format_specifier_datet;
 
 #if 0
 // This code is deactivated as it is not used for now, but ultimately this
@@ -82,6 +85,21 @@ exprt string_constraint_generatort::add_axioms_for_string_format(
   const exprt::operandst &args)
 {
   format_specifier_stringt specifier;
+  return specifier.add_axioms_for_general_format(*this, res, s, args);
+}
+
+/// Parse `s` and add axioms ensuring the output corresponds to the output of
+/// SimpleDateFormat.format.
+/// \param res: string expression for the result of the format function
+/// \param s: a format string
+/// \param args: a vector of arguments
+/// \return code, 0 on success
+exprt string_constraint_generatort::add_axioms_for_date_format(
+  const array_string_exprt &res,
+  const std::string &s,
+  const exprt::operandst &args)
+{
+  format_specifier_datet specifier;
   return specifier.add_axioms_for_general_format(*this, res, s, args);
 }
 
@@ -151,6 +169,45 @@ exprt string_constraint_generatort::add_axioms_for_string_format(
     // List of arguments after s
     std::vector<exprt> args(f.arguments().begin() + 3, f.arguments().end());
     return add_axioms_for_string_format(res, s, args);
+  }
+  else
+  { // format_string is nondeterministic
+    message.warning()
+      << "ignoring format function with non constant first argument"
+      << message.eom;
+    return from_integer(100, f.type());
+  }
+}
+
+/// Formatted string using a date format string
+///
+/// Add axioms to specify the Java String.format function.
+/// \todo This is correct only if the argument at index 2 (ie the format string)
+///   is of type constant_exprt.
+/// \param f: A function application whose first two arguments store the result
+///   of an application of java.text.SimpleDateFormat.format. The argument at
+///   index 2 is the format string.
+///   Axioms are added to the result, i.e. the first two arguments of this
+///   function application.
+/// \return code, 0 on success
+exprt string_constraint_generatort::add_axioms_for_date_format(
+  const function_application_exprt &f)
+{
+  // Result and format string have to be present, no further arguments after
+  // that
+  PRECONDITION(f.arguments().size() == 3);
+  const array_string_exprt res =
+    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
+  const array_string_exprt format_string = get_string_expr(f.arguments()[2]);
+  const auto length = numeric_cast<unsigned>(format_string.length());
+
+  if(length && format_string.content().id()==ID_array)
+  { // format_string is constant
+    std::string s=array_exprt_to_string(
+      to_array_expr(format_string.content()), *length);
+    // List of arguments after s (empty for now)
+    std::vector<exprt> args;
+    return add_axioms_for_date_format(res, s, args);
   }
   else
   { // format_string is nondeterministic
