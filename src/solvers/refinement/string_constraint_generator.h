@@ -240,8 +240,8 @@ private:
     const exprt &end);
   exprt add_axioms_for_delete(const function_application_exprt &f);
   exprt add_axioms_for_delete_char_at(const function_application_exprt &expr);
-  exprt add_axioms_for_format(const function_application_exprt &f);
-  exprt add_axioms_for_format(
+  exprt add_axioms_for_string_format(const function_application_exprt &f);
+  exprt add_axioms_for_string_format(
     const array_string_exprt &res,
     const std::string &s,
     const exprt::operandst &args);

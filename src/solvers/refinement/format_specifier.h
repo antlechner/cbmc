@@ -36,7 +36,16 @@ public:
     return expr.operands()[number];
   }
 
+  exprt add_axioms_for_general_format(
+    string_constraint_generatort &gen,
+    const array_string_exprt &res,
+    const std::string &format_string,
+    const exprt::operandst &args);
+
 private:
+  virtual std::vector<std::unique_ptr<format_elementt>>
+  parse_format_string(std::string s) = 0;
+
   virtual std::pair<exprt, array_string_exprt> add_axioms_for_format_specifier(
     string_constraint_generatort &gen,
     const struct_exprt &arg,

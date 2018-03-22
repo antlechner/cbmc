@@ -84,9 +84,6 @@ public:
     char letter,
     unsigned _length);
 
-  static std::vector<std::unique_ptr<format_elementt>>
-  parse_format_string(std::string pattern);
-
   std::pair<exprt, array_string_exprt> add_axioms_for_format_element(
     string_constraint_generatort &gen,
     std::size_t &arg_count,
@@ -95,6 +92,9 @@ public:
     const exprt::operandst &args) override;
 
 private:
+  virtual std::vector<std::unique_ptr<format_elementt>>
+  parse_format_string(std::string s) override;
+
   std::pair<exprt, array_string_exprt> add_axioms_for_format_specifier(
     string_constraint_generatort &gen,
     const struct_exprt &arg,

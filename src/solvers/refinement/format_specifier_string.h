@@ -58,9 +58,6 @@ public:
     bool _dt,
     char _conversion);
 
-  static std::vector<std::unique_ptr<format_elementt>>
-  parse_format_string(std::string s);
-
   std::pair<exprt, array_string_exprt> add_axioms_for_format_element(
     string_constraint_generatort &gen,
     std::size_t &arg_count,
@@ -71,6 +68,9 @@ public:
 private:
   static std::unique_ptr<format_specifier_stringt>
     format_specifier_of_match(std::smatch &m);
+
+  virtual std::vector<std::unique_ptr<format_elementt>>
+  parse_format_string(std::string s) override;
 
   std::pair<exprt, array_string_exprt> add_axioms_for_format_specifier(
     string_constraint_generatort &gen,

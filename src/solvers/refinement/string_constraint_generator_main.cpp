@@ -562,7 +562,7 @@ exprt string_constraint_generatort::add_axioms_for_function_application(
   else if(id==ID_cprover_string_intern_func)
     res=add_axioms_for_intern(expr);
   else if(id==ID_cprover_string_format_func)
-    res=add_axioms_for_format(expr);
+    res=add_axioms_for_string_format(expr);
   else if(id == ID_cprover_string_constrain_characters_func)
     res = add_axioms_for_constrain_characters(expr);
   else
