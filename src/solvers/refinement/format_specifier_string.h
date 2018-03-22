@@ -48,6 +48,8 @@ public:
   static const char LINE_SEPARATOR           ='n';
   static const char PERCENT_SIGN             ='%';
 
+  format_specifier_stringt() = default;
+
   format_specifier_stringt(
     int _arg_index,
     std::string _flag,
@@ -76,12 +78,12 @@ private:
     const typet &index_type,
     const typet &char_type) override;
 
-  int arg_index=-1;
+  int arg_index = -1;
   std::string flag;
-  int width;
-  int precision;
-  bool dt=false;
-  char conversion;
+  int width = 0;
+  int precision = 0;
+  bool dt = false;
+  char conversion = '\0';
 
 };
 

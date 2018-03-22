@@ -78,6 +78,8 @@ public:
   static const char TIME_ZONE_RFC           = 'Z';
   static const char TIME_ZONE_ISO           = 'X';
 
+  format_specifier_datet() = default;
+
   format_specifier_datet(
     char letter,
     unsigned _length);
@@ -99,8 +101,8 @@ private:
     const typet &index_type,
     const typet &char_type) override;
 
-  char pattern_letter;
-  unsigned length;
+  char pattern_letter = '\0';
+  unsigned length = 0;
 
 };
 
