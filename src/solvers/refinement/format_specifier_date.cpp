@@ -7,7 +7,9 @@
 \*******************************************************************/
 
 
+#include <algorithm>
 #include <iomanip>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -110,6 +112,8 @@ format_specifier_datet::add_axioms_for_format_specifier(
 {
   const array_string_exprt res = gen.fresh_string(index_type, char_type);
   exprt return_code;
+  std::ostringstream stream;
+  size_t width;
   switch(pattern_letter)
   {
     case ERA_DESIGNATOR:
@@ -170,8 +174,11 @@ format_specifier_datet::add_axioms_for_format_specifier(
       return {return_code, res};
     case DAY_IN_YEAR:
     case DAY_IN_MONTH:
-      return_code = gen.add_axioms_for_constant(
-          res, std::string(length - 2, '0') + "10");
+      width = std::max<size_t>(length, 2);
+      stream.width(width);
+      stream << "10";
+      stream.fill('0');
+      return_code = gen.add_axioms_for_constant(res, stream.str());
       return {return_code, res};
     case DAY_OF_WEEK_IN_MONTH:
       return_code = gen.add_axioms_for_constant(
@@ -183,16 +190,22 @@ format_specifier_datet::add_axioms_for_format_specifier(
       return {return_code, res};
     case HOUR_IN_DAY_FROM_ZERO:
     case HOUR_IN_DAY_FROM_ONE:
-      return_code = gen.add_axioms_for_constant(
-          res, std::string(length - 2, '0') + "12");
+      width = std::max<size_t>(length, 2);
+      stream.width(width);
+      stream << "12";
+      stream.fill('0');
+      return_code = gen.add_axioms_for_constant(res, stream.str());
       return {return_code, res};
     case HOUR_IN_AM_PM_FROM_ZERO:
       return_code = gen.add_axioms_for_constant(
           res, std::string(length - 1, '0') + "0");
       return {return_code, res};
     case HOUR_IN_AM_PM_FROM_ONE:
-      return_code = gen.add_axioms_for_constant(
-          res, std::string(length - 2, '0') + "12");
+      width = std::max<size_t>(length, 2);
+      stream.width(width);
+      stream << "12";
+      stream.fill('0');
+      return_code = gen.add_axioms_for_constant(res, stream.str());
       return {return_code, res};
     case MINUTE_IN_HOUR:
     case SECOND_IN_MINUTE:

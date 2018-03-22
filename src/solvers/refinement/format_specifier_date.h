@@ -102,7 +102,7 @@ private:
     const typet &char_type) override;
 
   char pattern_letter = '\0';
-  unsigned length = 0;
+  size_t length = 0;
 
 };
 
