@@ -27,6 +27,8 @@ Author: Daniel Kroening, kroening@kroening.com
 #error "Expected HAVE_MINISAT2"
 #endif
 
+#define RANDOMIZE_MINISAT
+
 void convert(const bvt &bv, Minisat::vec<Minisat::Lit> &dest)
 {
   PRECONDITION(
@@ -298,6 +300,11 @@ template<typename T>
 satcheck_minisat2_baset<T>::satcheck_minisat2_baset(T *_solver):
   solver(_solver), time_limit_seconds(0)
 {
+#ifdef RANDOMIZE_MINISAT
+  const float seed = 1 / ((float) (time(NULL) & 0xEFFFF));
+  this->solver->random_seed = seed;
+  this->solver->random_var_freq = 0.4;
+#endif
 }
 
 template<>
