@@ -2546,15 +2546,9 @@ void java_bytecode_convert_methodt::convert_new(
   const exprt tmp = tmp_variable("new", ref_type);
   c = code_assignt(tmp, java_new_expr);
   c.add_source_location() = location;
-  codet clinit_call =
-    get_clinit_call(to_symbol_type(arg0.type()).get_identifier());
-  if(clinit_call.get_statement() != ID_skip)
-  {
-    code_blockt ret_block;
-    ret_block.move_to_operands(clinit_call);
-    ret_block.move_to_operands(c);
-    c = std::move(ret_block);
-  }
+  code_blockt ret_block;
+  ret_block.move_to_operands(c);
+  c = std::move(ret_block);
   results[0] = tmp;
 }
 
