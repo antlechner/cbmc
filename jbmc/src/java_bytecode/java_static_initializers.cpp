@@ -216,12 +216,30 @@ static void clinit_wrapper_do_recursive_calls(
     init_body.add(call_base);
   }
 
-  const irep_idt &real_clinit_name = clinit_function_name(class_name);
-  auto find_sym_it = symbol_table.symbols.find(real_clinit_name);
-  if(find_sym_it != symbol_table.symbols.end())
+  bool has_final_fields = false;
+  std::for_each(
+    symbol_table.symbols.begin(),
+    symbol_table.symbols.end(),
+    [&](const std::pair<irep_idt, symbolt> &symbol) {
+      if(
+        symbol.second.type.get(ID_C_class) == class_name &&
+        symbol.second.is_static_lifetime &&
+        symbol.second.type.get_bool(ID_C_constant))
+      {
+        has_final_fields = true;
+      }
+    });
+
+  if(!nondet_static || has_final_fields)
   {
-    const code_function_callt call_real_init(find_sym_it->second.symbol_expr());
-    init_body.add(call_real_init);
+    const irep_idt &real_clinit_name = clinit_function_name(class_name);
+    auto find_sym_it = symbol_table.symbols.find(real_clinit_name);
+    if(find_sym_it != symbol_table.symbols.end())
+    {
+      const code_function_callt call_real_init(
+        find_sym_it->second.symbol_expr());
+      init_body.add(call_real_init);
+    }
   }
 
   // If nondet-static option is given, add a standard nondet initialization for
