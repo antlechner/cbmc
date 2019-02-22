@@ -230,7 +230,7 @@ static void clinit_wrapper_do_recursive_calls(
       }
     });
 
-  if(!nondet_static || has_final_fields)
+  if(!nondet_static)
   {
     const irep_idt &real_clinit_name = clinit_function_name(class_name);
     auto find_sym_it = symbol_table.symbols.find(real_clinit_name);
@@ -257,8 +257,7 @@ static void clinit_wrapper_do_recursive_calls(
       [&](const std::pair<irep_idt, symbolt> &symbol) {
         if(
           symbol.second.type.get(ID_C_class) == class_name &&
-          symbol.second.is_static_lifetime &&
-          !symbol.second.type.get_bool(ID_C_constant))
+          symbol.second.is_static_lifetime)
         {
           nondet_ids.push_back(symbol.first);
         }
