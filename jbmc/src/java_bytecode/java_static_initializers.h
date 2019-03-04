@@ -19,6 +19,16 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 #include <util/std_code.h>
 #include <util/symbol_table.h>
 
+/// General exception for something invalid with the JSON file
+class static_field_list_errort : public std::runtime_error
+{
+public:
+  explicit static_field_list_errort(const std::string &error_message)
+    : std::runtime_error(error_message)
+  {
+  }
+};
+
 irep_idt clinit_wrapper_name(const irep_idt &class_name);
 
 bool is_clinit_wrapper_function(const irep_idt &function_id);
