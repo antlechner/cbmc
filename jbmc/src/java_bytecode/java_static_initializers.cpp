@@ -15,6 +15,7 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 #include <util/std_code.h>
 #include <util/suffix.h>
 #include <util/arith_tools.h>
+#include <json/json_parser.h>
 
 /// The three states in which a `<clinit>` method for a class can be before,
 /// after, and during static class initialization. These states are only used
@@ -181,6 +182,16 @@ gen_clinit_eqexpr(const exprt &expr, const clinit_statest state)
   return equal_exprt(expr, init_s);
 }
 
+static exprt java_expr_from_json(const json_objectt &json)
+{
+  const std::string &type_name = json["@type"].value;
+  if(type_name == "int")
+  {
+    return from_integer(610, java_int_type());
+  }
+  UNREACHABLE;
+}
+
 /// Generates codet that iterates through the base types of the class specified
 /// by class_name, C, and recursively adds calls to their clinit wrapper.
 /// Finally a call to the clinit of C is made. If nondet-static option was
@@ -220,20 +231,34 @@ static void clinit_wrapper_do_recursive_calls(
   //   init_body.add(code_function_callt{clinit_func->symbol_expr()});
 
   // find all static fields for class_name
-  std::for_each(
-    symbol_table.symbols.begin(),
-    symbol_table.symbols.end(),
-    [&](const std::pair<irep_idt, symbolt> &symbol) {
-      if(
-        symbol.second.type.get(ID_C_class) == class_name &&
-        symbol.second.is_static_lifetime)
+  if(id2string(class_name) == "java::com.diffblue.Example1")
+  {
+    jsont json;
+    if(parse_json("clinit-state/com.diffblue.Example1.json", message_handler, json))
+    {
+    throw deserialization_exceptiont("failed to read JSON post-clinit state");
+    }
+    if(!json.is_object())
+    {
+      throw static_field_list_errort("Invalid JSON structure");
+    }
+    std::for_each(
+      symbol_table.symbols.begin(),
+      symbol_table.symbols.end(),
+      [&](const std::pair<irep_idt, symbolt> &symbol)
       {
-        const exprt &static_field_expr = symbol.second.symbol_expr();
-        const exprt &rhs = from_integer(610, java_int_type());
-        const code_assignt assignment(static_field_expr, rhs);
-        init_body.add(assignment);
-      }
-    });
+        if(
+          symbol.second.type.get(ID_C_class)==class_name &&
+          symbol.second.is_static_lifetime)
+        {
+          const json_objectt &static_field_json = to_json_object(json[id2string(symbol.second.base_name)]);
+          const exprt &static_field_expr=symbol.second.symbol_expr();
+          const exprt &rhs = java_expr_from_json(static_field_json);
+          const code_assignt assignment(static_field_expr, rhs);
+          init_body.add(assignment);
+        }
+      });
+  }
 
   // If nondet-static option is given, add a standard nondet initialization for
   // each non-final static field of this class. Note this is the same invocation
