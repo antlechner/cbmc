@@ -214,9 +214,26 @@ static void clinit_wrapper_do_recursive_calls(
       init_body.add(code_function_callt{base_init_func->symbol_expr()});
   }
 
-  const irep_idt &real_clinit_name = clinit_function_name(class_name);
-  if(const auto clinit_func = symbol_table.lookup(real_clinit_name))
-    init_body.add(code_function_callt{clinit_func->symbol_expr()});
+  // Replacing clinit with new prototype
+  // const irep_idt &real_clinit_name = clinit_function_name(class_name);
+  // if(const auto clinit_func = symbol_table.lookup(real_clinit_name))
+  //   init_body.add(code_function_callt{clinit_func->symbol_expr()});
+
+  // find all static fields for class_name
+  std::for_each(
+    symbol_table.symbols.begin(),
+    symbol_table.symbols.end(),
+    [&](const std::pair<irep_idt, symbolt> &symbol) {
+      if(
+        symbol.second.type.get(ID_C_class) == class_name &&
+        symbol.second.is_static_lifetime)
+      {
+        const exprt &static_field_expr = symbol.second.symbol_expr();
+        const exprt &rhs = from_integer(610, java_int_type());
+        const code_assignt assignment(static_field_expr, rhs);
+        init_body.add(assignment);
+      }
+    });
 
   // If nondet-static option is given, add a standard nondet initialization for
   // each non-final static field of this class. Note this is the same invocation
