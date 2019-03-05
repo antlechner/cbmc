@@ -16,6 +16,8 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 #include <util/suffix.h>
 #include <util/arith_tools.h>
 #include <json/json_parser.h>
+#include <util/expr_initializer.h>
+#include <goto-programs/class_identifier.h>
 
 /// The three states in which a `<clinit>` method for a class can be before,
 /// after, and during static class initialization. These states are only used
@@ -182,15 +184,84 @@ gen_clinit_eqexpr(const exprt &expr, const clinit_statest state)
   return equal_exprt(expr, init_s);
 }
 
-static exprt java_expr_from_json(const json_objectt &json)
+/// Returns a codet that assigns \p expr, of type \p ptr_type, a NULL value.
+code_assignt get_null_assignment(
+  const exprt &expr,
+  const pointer_typet &ptr_type)
 {
-  const std::string &type_name = json["@type"].value;
-  if(type_name == "int")
-  {
-    return from_integer(610, java_int_type());
-  }
-  UNREACHABLE;
+  null_pointer_exprt null_pointer_expr(ptr_type);
+  code_assignt code(expr, null_pointer_expr);
+  return code;
 }
+
+static void static_assignments_from_json_rec(
+  const jsont &json,
+  const exprt &expr,
+  code_blockt &init_body,
+  symbol_table_baset &symbol_table)
+{
+  if(expr.type().id() == ID_pointer)
+  {
+    const pointer_typet &pointer_type = to_pointer_type(expr.type());
+    if(json.is_null()) {
+      init_body.add(get_null_assignment(expr, pointer_type));
+      return;
+    }
+    namespacet ns{symbol_table};
+    const struct_typet &struct_type = to_struct_type(ns.follow(pointer_type.subtype()));
+    allocate_objectst allocate_objects(ID_java, source_locationt(), "tmp_function", symbol_table);
+    exprt init_expr = allocate_objects.allocate_object(init_body, expr, struct_type, lifetimet::DYNAMIC, "tmp_prototype");
+    dereference_exprt deref_expr(expr);
+    auto initial_object =
+      zero_initializer(deref_expr.type(), source_locationt(), ns);
+    CHECK_RETURN(initial_object.has_value());
+    const irep_idt qualified_clsid = "java::" + id2string(struct_type.get_tag());
+    set_class_identifier(
+      to_struct_expr(*initial_object), ns, struct_tag_typet(qualified_clsid));
+    init_body.add(code_assignt(deref_expr, *initial_object));
+    for(const auto &component : struct_type.components()) {
+      const typet &component_type = component.type();
+      irep_idt component_name = component.get_name();
+      member_exprt me(deref_expr, component_name, component_type);
+//      if(component_name == "@class_identifier" || component_name == "@java.lang.Object") // hack
+//        continue;
+      if(component == *struct_type.components().begin())
+        continue;
+      const jsont member_json = json[id2string(component_name)];
+      static_assignments_from_json_rec(member_json, me, init_body, symbol_table);
+    }
+  }
+  else if(expr.type() == java_int_type())
+  {
+    const std::string &number_string = json.value;
+    const exprt &rhs = from_integer(std::stoi(number_string), java_int_type());
+    const code_assignt assignment(expr, rhs);
+    init_body.add(assignment);
+  }
+}
+
+static void static_assignments_from_json(
+  const jsont &json,
+  const symbol_exprt &expr,
+  code_blockt &init_body,
+  symbol_table_baset &symbol_table)
+{
+  if(expr.type().id() == ID_pointer)
+    static_assignments_from_json_rec(json, expr, init_body, symbol_table);
+  else
+  {
+//    const std::string &type_name = json["@type"].value;
+//    if(type_name == "int")
+    if(expr.type() == java_int_type())
+    {
+      const std::string &number_string = json["value"].value;
+      const exprt &rhs = from_integer(std::stoi(number_string), java_int_type());
+      const code_assignt assignment(expr, rhs);
+      init_body.add(assignment);
+    }
+  }
+}
+
 
 /// Generates codet that iterates through the base types of the class specified
 /// by class_name, C, and recursively adds calls to their clinit wrapper.
@@ -231,10 +302,11 @@ static void clinit_wrapper_do_recursive_calls(
   //   init_body.add(code_function_callt{clinit_func->symbol_expr()});
 
   // find all static fields for class_name
-  if(id2string(class_name) == "java::com.diffblue.Example1")
-  {
+  const std::string filename = "clinit-state/" + id2string(class_name).substr(6) + ".json";
+//  if(id2string(class_name) == "java::com.diffblue.Example1")
     jsont json;
-    if(parse_json("clinit-state/com.diffblue.Example1.json", message_handler, json))
+//    if(parse_json("clinit-state/com.diffblue.Example1.json", message_handler, json))
+    if(parse_json(filename, message_handler, json))
     {
     throw deserialization_exceptiont("failed to read JSON post-clinit state");
     }
@@ -251,14 +323,15 @@ static void clinit_wrapper_do_recursive_calls(
           symbol.second.type.get(ID_C_class)==class_name &&
           symbol.second.is_static_lifetime)
         {
-          const json_objectt &static_field_json = to_json_object(json[id2string(symbol.second.base_name)]);
-          const exprt &static_field_expr=symbol.second.symbol_expr();
-          const exprt &rhs = java_expr_from_json(static_field_json);
-          const code_assignt assignment(static_field_expr, rhs);
-          init_body.add(assignment);
+          const jsont &static_field_json = json[id2string(symbol.second.base_name)];
+          const symbol_exprt &static_field_expr=symbol.second.symbol_expr();
+          static_assignments_from_json(
+            static_field_json,
+            static_field_expr,
+            init_body,
+            symbol_table);
         }
       });
-  }
 
   // If nondet-static option is given, add a standard nondet initialization for
   // each non-final static field of this class. Note this is the same invocation
