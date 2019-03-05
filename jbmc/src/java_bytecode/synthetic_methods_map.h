@@ -27,6 +27,7 @@ enum class synthetic_method_typet
   /// These are generated for both user and stub types, to ensure the actual
   /// static initializer is only run once on any given path.
   STATIC_INITIALIZER_WRAPPER,
+  FAST_STATIC_INITIALIZER,
   /// A generated (synthetic) static initializer function for a stub type.
   /// Because we don't have the bytecode for a stub type (by definition), we
   /// generate a static initializer function to initialize its static fields.

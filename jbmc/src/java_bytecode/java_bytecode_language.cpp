@@ -1097,6 +1097,14 @@ bool java_bytecode_languaget::convert_single_method(
           get_pointer_type_selector(),
           get_message_handler());
       break;
+    case synthetic_method_typet::FAST_STATIC_INITIALIZER:
+      writable_symbol.value = get_fast_clinit_body(
+        function_id,
+        symbol_table,
+        object_factory_parameters,
+        get_pointer_type_selector(),
+        get_message_handler());
+      break;
     case synthetic_method_typet::STUB_CLASS_STATIC_INITIALIZER:
       writable_symbol.value =
         stub_global_initializer_factory.get_stub_initializer_body(

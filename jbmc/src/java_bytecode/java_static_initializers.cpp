@@ -55,6 +55,7 @@ static typet clinit_states_type()
 // Disable linter here to allow a std::string constant, since that holds
 // a length, whereas a cstr would require strlen every time.
 const std::string clinit_wrapper_suffix = "::clinit_wrapper"; // NOLINT(*)
+const std::string fast_clinit_suffix = "::fast_clinit"; // NOLINT(*)
 const std::string clinit_function_suffix = ".<clinit>:()V"; // NOLINT(*)
 
 /// Get the Java static initializer wrapper name for a given class (the wrapper
@@ -66,6 +67,11 @@ const std::string clinit_function_suffix = ".<clinit>:()V"; // NOLINT(*)
 irep_idt clinit_wrapper_name(const irep_idt &class_name)
 {
   return id2string(class_name) + clinit_wrapper_suffix;
+}
+
+irep_idt fast_clinit_name(const irep_idt &class_name)
+{
+  return id2string(class_name) + fast_clinit_suffix;
 }
 
 /// Check if function_id is a clinit wrapper
@@ -197,6 +203,7 @@ code_assignt get_null_assignment(
 static void static_assignments_from_json_rec(
   const jsont &json,
   const exprt &expr,
+  const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table)
 {
@@ -208,27 +215,26 @@ static void static_assignments_from_json_rec(
       return;
     }
     namespacet ns{symbol_table};
-    const struct_typet &struct_type = to_struct_type(ns.follow(pointer_type.subtype()));
-    allocate_objectst allocate_objects(ID_java, source_locationt(), "tmp_function", symbol_table);
-    exprt init_expr = allocate_objects.allocate_object(init_body, expr, struct_type, lifetimet::DYNAMIC, "tmp_prototype");
-    dereference_exprt deref_expr(expr);
+    allocate_objectst allocate_objects(ID_java, source_locationt(), clinit_wrapper_name(class_name), symbol_table);
+    exprt init_expr = allocate_objects.allocate_object(init_body, expr, pointer_type.subtype(), lifetimet::DYNAMIC, "tmp_prototype");
+    const struct_typet &struct_type = to_struct_type(ns.follow(init_expr.type()));
     auto initial_object =
-      zero_initializer(deref_expr.type(), source_locationt(), ns);
+      zero_initializer(init_expr.type(), source_locationt(), ns);
     CHECK_RETURN(initial_object.has_value());
     const irep_idt qualified_clsid = "java::" + id2string(struct_type.get_tag());
     set_class_identifier(
       to_struct_expr(*initial_object), ns, struct_tag_typet(qualified_clsid));
-    init_body.add(code_assignt(deref_expr, *initial_object));
+    init_body.add(code_assignt(init_expr, *initial_object));
     for(const auto &component : struct_type.components()) {
-      const typet &component_type = component.type();
-      irep_idt component_name = component.get_name();
-      member_exprt me(deref_expr, component_name, component_type);
-//      if(component_name == "@class_identifier" || component_name == "@java.lang.Object") // hack
-//        continue;
       if(component == *struct_type.components().begin())
         continue;
+      const typet &component_type = component.type();
+      irep_idt component_name = component.get_name();
+      if(component_name == "@class_identifier" || component_name == "cproverMonitorCount")
+        continue;
+      member_exprt me(init_expr, component_name, component_type);
       const jsont member_json = json[id2string(component_name)];
-      static_assignments_from_json_rec(member_json, me, init_body, symbol_table);
+      static_assignments_from_json_rec(member_json, me, class_name, init_body, symbol_table);
     }
   }
   else if(expr.type() == java_int_type())
@@ -243,11 +249,12 @@ static void static_assignments_from_json_rec(
 static void static_assignments_from_json(
   const jsont &json,
   const symbol_exprt &expr,
+  const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table)
 {
   if(expr.type().id() == ID_pointer)
-    static_assignments_from_json_rec(json, expr, init_body, symbol_table);
+    static_assignments_from_json_rec(json, expr, class_name, init_body, symbol_table);
   else
   {
 //    const std::string &type_name = json["@type"].value;
@@ -261,7 +268,6 @@ static void static_assignments_from_json(
     }
   }
 }
-
 
 /// Generates codet that iterates through the base types of the class specified
 /// by class_name, C, and recursively adds calls to their clinit wrapper.
@@ -297,41 +303,13 @@ static void clinit_wrapper_do_recursive_calls(
   }
 
   // Replacing clinit with new prototype
-  // const irep_idt &real_clinit_name = clinit_function_name(class_name);
-  // if(const auto clinit_func = symbol_table.lookup(real_clinit_name))
-  //   init_body.add(code_function_callt{clinit_func->symbol_expr()});
-
-  // find all static fields for class_name
-  const std::string filename = "clinit-state/" + id2string(class_name).substr(6) + ".json";
-//  if(id2string(class_name) == "java::com.diffblue.Example1")
-    jsont json;
-//    if(parse_json("clinit-state/com.diffblue.Example1.json", message_handler, json))
-    if(parse_json(filename, message_handler, json))
-    {
-    throw deserialization_exceptiont("failed to read JSON post-clinit state");
-    }
-    if(!json.is_object())
-    {
-      throw static_field_list_errort("Invalid JSON structure");
-    }
-    std::for_each(
-      symbol_table.symbols.begin(),
-      symbol_table.symbols.end(),
-      [&](const std::pair<irep_idt, symbolt> &symbol)
-      {
-        if(
-          symbol.second.type.get(ID_C_class)==class_name &&
-          symbol.second.is_static_lifetime)
-        {
-          const jsont &static_field_json = json[id2string(symbol.second.base_name)];
-          const symbol_exprt &static_field_expr=symbol.second.symbol_expr();
-          static_assignments_from_json(
-            static_field_json,
-            static_field_expr,
-            init_body,
-            symbol_table);
-        }
-      });
+  const irep_idt &fast_clinit = fast_clinit_name(class_name);
+  auto find_sym_it = symbol_table.symbols.find(fast_clinit);
+  if(find_sym_it != symbol_table.symbols.end())
+  {
+    const code_function_callt call_fast_init(find_sym_it->second.symbol_expr());
+    init_body.add(call_fast_init);
+  }
 
   // If nondet-static option is given, add a standard nondet initialization for
   // each non-final static field of this class. Note this is the same invocation
@@ -481,6 +459,26 @@ static void create_clinit_wrapper_symbols(
     insert_result.second,
     "synthetic methods map should not already contain entry for "
     "clinit wrapper");
+
+  // Create symbol for the "fast_clinit"
+  symbolt fast_clinit_method_symbol;
+  const java_method_typet fast_clinit_method_type({}, java_void_type());
+  fast_clinit_method_symbol.name = fast_clinit_name(class_name);
+  fast_clinit_method_symbol.pretty_name = fast_clinit_method_symbol.name;
+  fast_clinit_method_symbol.base_name = "fast_clinit";
+  fast_clinit_method_symbol.type = fast_clinit_method_type;
+  fast_clinit_method_symbol.type.set(ID_C_class, class_name);
+  fast_clinit_method_symbol.mode = ID_java;
+  bool fast_failed = symbol_table.add(fast_clinit_method_symbol);
+  INVARIANT(!fast_failed, "fast_clinit symbol should be fresh");
+
+  auto fast_clinit_insert_result = synthetic_methods.emplace(
+    fast_clinit_method_symbol.name,
+    synthetic_method_typet::FAST_STATIC_INITIALIZER);
+  INVARIANT(
+    fast_clinit_insert_result.second,
+    "synthetic methods map should not already contain entry for "
+    "fast_clinit");
 }
 
 /// Thread safe version of the static initializer.
@@ -804,6 +802,50 @@ code_ifthenelset get_clinit_wrapper_body(
 
   // the entire body of the function is an if-then-else
   return code_ifthenelset(std::move(check_already_run), std::move(init_body));
+}
+
+code_blockt get_fast_clinit_body(
+  const irep_idt &function_id,
+  symbol_table_baset &symbol_table,
+  const java_object_factory_parameterst &object_factory_parameters,
+  const select_pointer_typet &pointer_type_selector,
+  message_handlert &message_handler)
+{
+  // find all static fields for class_name
+  const irep_idt &class_name = symbol_table.lookup_ref(function_id).type.get(ID_C_class);
+  const std::string filename = "clinit-state/" + id2string(class_name).substr(6) + ".json";
+  jsont json;
+  if(parse_json(filename, message_handler, json))
+  {
+     const irep_idt &real_clinit_name = clinit_function_name(class_name);
+     if(const auto clinit_func = symbol_table.lookup(real_clinit_name))
+       return code_blockt{{code_function_callt{clinit_func->symbol_expr()}}};
+  }
+  if(!json.is_object())
+  {
+    throw static_field_list_errort("Invalid JSON structure");
+  }
+  code_blockt body;
+  std::for_each(
+    symbol_table.symbols.begin(),
+    symbol_table.symbols.end(),
+    [&](const std::pair<irep_idt, symbolt> &symbol)
+    {
+      if(
+        symbol.second.type.get(ID_C_class)==class_name &&
+        symbol.second.is_static_lifetime)
+      {
+        const jsont &static_field_json = json[id2string(symbol.second.base_name)];
+        const symbol_exprt &static_field_expr=symbol.second.symbol_expr();
+        static_assignments_from_json(
+          static_field_json,
+          static_field_expr,
+          class_name,
+          body,
+          symbol_table);
+      }
+    });
+  return body;
 }
 
 /// Create static initializer wrappers for all classes that need them.
