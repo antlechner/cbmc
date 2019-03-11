@@ -14,15 +14,6 @@
 #include "java_string_literals.h"
 #include "java_utils.h"
 
-code_assignt get_null_assignment(
-  const exprt &expr,
-  const pointer_typet &ptr_type)
-{
-  null_pointer_exprt null_pointer_expr(ptr_type);
-  code_assignt code(expr, null_pointer_expr);
-  return code;
-}
-
 static void static_assignments_from_json_rec(
   const jsont &json,
   const exprt &expr,
@@ -34,7 +25,7 @@ static void static_assignments_from_json_rec(
   {
     const pointer_typet &pointer_type = to_pointer_type(expr.type());
     if(json.is_null()) {
-      init_body.add(get_null_assignment(expr, pointer_type));
+      init_body.add(code_assignt(expr, null_pointer_exprt(pointer_type)));
       return;
     }
     namespacet ns{symbol_table};
