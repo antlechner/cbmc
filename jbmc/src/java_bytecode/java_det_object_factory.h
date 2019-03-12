@@ -11,7 +11,7 @@
 
 void static_assignments_from_json(
   const jsont &json,
-  const symbol_exprt &expr,
+  const exprt &expr,
   const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
