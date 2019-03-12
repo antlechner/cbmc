@@ -15,8 +15,32 @@
 #include "java_string_literals.h"
 #include "java_utils.h"
 
-/// Compile-time primitive type which is not top-level.
-/// Can never have a "@type" key.
+/// For typed versions of non-reference types (primitive, string or array types)
+/// we retrieve their untyped contents by looking them up with the key
+/// specific to their type.
+static jsont get_untyped(const jsont &json, const std::string &object_key)
+{
+//  if(
+//    json.is_object() && static_cast<const json_objectt &>(json).find("type") !=
+//                          static_cast<const json_objectt &>(json).end())
+  if(json.is_object())
+  {
+    return json[object_key];
+  }
+  return json;
+}
+
+static jsont get_untyped_primitive(const jsont &json)
+{
+  return get_untyped(json, "value");
+}
+
+static jsont get_untyped_array(const jsont &json)
+{
+  return get_untyped(json, "@items");
+}
+
+/// Compile-time primitive type with no "@type" field.
 static void primitive_assignment(
   const exprt &expr,
   const jsont &json,
@@ -72,12 +96,48 @@ static void primitive_assignment(
   }
 }
 
-static void static_assignments_from_json_rec(
+static void array_assignment(
+  const jsont &json,
+  const exprt &expr,
+  code_blockt &init_body,
+  symbol_table_baset &symbol_table,
+  const source_locationt &loc)
+{
+  PRECONDITION(json.is_array());
+  const pointer_typet &pointer = to_pointer_type(expr.type());
+  namespacet ns{symbol_table};
+//  const java_class_typet &java_class_type =
+//    to_java_class_type(ns.follow(pointer.subtype()));
+  const typet &element_type =
+    static_cast<const typet &>(pointer.subtype().find(ID_element_type));
+
+  auto array_size = from_integer(
+    static_cast<const json_arrayt &>(json).size(), java_int_type());
+  side_effect_exprt java_new_array(ID_java_new_array, expr.type(), loc);
+  java_new_array.copy_to_operands(array_size);
+  java_new_array.set(ID_length_upper_bound, array_size);
+  java_new_array.type().subtype().set(ID_element_type, element_type);
+  code_assignt assign(expr, java_new_array);
+  assign.add_source_location() = loc;
+  init_body.add(assign);
+
+//  dereference_exprt deref_expr(expr, expr.type().subtype());
+//  const auto &comps = java_class_type.components();
+//  const member_exprt length_expr(deref_expr, "length", comps[1].type());
+//  exprt init_array_expr = member_exprt(deref_expr, "data", comps[2].type());
+//
+//  if(init_array_expr.type() != pointer_type(element_type))
+//    init_array_expr =
+//      typecast_exprt(init_array_expr, pointer_type(element_type));
+}
+
+void static_assignments_from_json(
   const jsont &json,
   const exprt &expr,
   const irep_idt &class_name,
   code_blockt &init_body,
-  symbol_table_baset &symbol_table)
+  symbol_table_baset &symbol_table,
+  const source_locationt &loc)
 {
   if(expr.type().id() == ID_pointer)
   {
@@ -88,6 +148,16 @@ static void static_assignments_from_json_rec(
       return;
     }
     namespacet ns{symbol_table};
+    const java_class_typet &java_class_type =
+      to_java_class_type(ns.follow(pointer_type.subtype()));
+
+    if(has_prefix(id2string(java_class_type.get_tag()), "java::array["))
+    {
+      array_assignment(
+        get_untyped_array(json), expr, init_body, symbol_table, loc);
+      return;
+    }
+
     allocate_objectst allocate_objects(
       ID_java,
       source_locationt(),
@@ -99,19 +169,17 @@ static void static_assignments_from_json_rec(
       pointer_type.subtype(),
       lifetimet::DYNAMIC,
       "tmp_prototype");
-    const struct_typet &struct_type =
-      to_struct_type(ns.follow(init_expr.type()));
     auto initial_object =
       zero_initializer(init_expr.type(), source_locationt(), ns);
     CHECK_RETURN(initial_object.has_value());
     const irep_idt qualified_clsid =
-      "java::" + id2string(struct_type.get_tag());
+      "java::" + id2string(java_class_type.get_tag());
     set_class_identifier(
       to_struct_expr(*initial_object), ns, struct_tag_typet(qualified_clsid));
     init_body.add(code_assignt(init_expr, *initial_object));
-    for(const auto &component : struct_type.components())
+    for(const auto &component : java_class_type.components())
     {
-      if(component == *struct_type.components().begin())
+      if(component == *java_class_type.components().begin())
         continue;
       const typet &component_type = component.type();
       irep_idt component_name = component.get_name();
@@ -121,30 +189,12 @@ static void static_assignments_from_json_rec(
         continue;
       member_exprt me(init_expr, component_name, component_type);
       const jsont member_json = json[id2string(component_name)];
-      static_assignments_from_json_rec(
-        member_json, me, class_name, init_body, symbol_table);
+      static_assignments_from_json(
+        member_json, me, class_name, init_body, symbol_table, loc);
     }
   }
   else
   {
-    primitive_assignment(expr, json, init_body);
-  }
-}
-
-void static_assignments_from_json(
-  const jsont &json,
-  const symbol_exprt &expr,
-  const irep_idt &class_name,
-  code_blockt &init_body,
-  symbol_table_baset &symbol_table,
-  const source_locationt &loc)
-{
-  if(expr.type().id() == ID_pointer)
-    static_assignments_from_json_rec(
-      json, expr, class_name, init_body, symbol_table);
-  else
-  {
-    // Special case: top-level compile-time primitive, has a "@type" key.
-    primitive_assignment(expr, json["value"], init_body);
+    primitive_assignment(expr, get_untyped_primitive(json), init_body);
   }
 }
