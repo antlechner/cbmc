@@ -99,36 +99,63 @@ static void primitive_assignment(
 static void array_assignment(
   const jsont &json,
   const exprt &expr,
+  const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
   const source_locationt &loc)
 {
   PRECONDITION(json.is_array());
+  const json_arrayt &json_array = static_cast<const json_arrayt&>(json);
+  const size_t array_size = json_array.size();
   const pointer_typet &pointer = to_pointer_type(expr.type());
   namespacet ns{symbol_table};
-//  const java_class_typet &java_class_type =
-//    to_java_class_type(ns.follow(pointer.subtype()));
+  const java_class_typet &java_class_type =
+    to_java_class_type(ns.follow(pointer.subtype()));
   const typet &element_type =
     static_cast<const typet &>(pointer.subtype().find(ID_element_type));
 
-  auto array_size = from_integer(
-    static_cast<const json_arrayt &>(json).size(), java_int_type());
-  side_effect_exprt java_new_array(ID_java_new_array, expr.type(), loc);
-  java_new_array.copy_to_operands(array_size);
-  java_new_array.set(ID_length_upper_bound, array_size);
+  const auto array_size_expr = from_integer(array_size, java_int_type());
+  side_effect_exprt java_new_array(ID_java_new_array, pointer, loc);
+  java_new_array.copy_to_operands(array_size_expr);
+  java_new_array.set(ID_length_upper_bound, array_size_expr);
   java_new_array.type().subtype().set(ID_element_type, element_type);
   code_assignt assign(expr, java_new_array);
   assign.add_source_location() = loc;
   init_body.add(assign);
 
-//  dereference_exprt deref_expr(expr, expr.type().subtype());
-//  const auto &comps = java_class_type.components();
-//  const member_exprt length_expr(deref_expr, "length", comps[1].type());
-//  exprt init_array_expr = member_exprt(deref_expr, "data", comps[2].type());
-//
-//  if(init_array_expr.type() != pointer_type(element_type))
-//    init_array_expr =
-//      typecast_exprt(init_array_expr, pointer_type(element_type));
+  dereference_exprt deref_expr(expr, java_class_type);
+  const auto &comps = java_class_type.components();
+  const member_exprt length_expr(deref_expr, "length", comps[1].type());
+  exprt init_array_expr = member_exprt(deref_expr, "data", comps[2].type());
+
+  if(init_array_expr.type() != pointer_type(element_type))
+    init_array_expr =
+      typecast_exprt(init_array_expr, pointer_type(element_type));
+
+  allocate_objectst allocate_objects(
+    ID_java,
+    source_locationt(),
+    clinit_wrapper_name(class_name),
+    symbol_table);
+  const symbol_exprt &array_init_data =
+    allocate_objects.allocate_automatic_local_object(
+      init_array_expr.type(), "array_data_init");
+  (void) array_init_data;
+  code_assignt data_assign(array_init_data, init_array_expr);
+  data_assign.add_source_location()=loc;
+  init_body.add(data_assign);
+
+  size_t index = 0;
+  for(auto it = json_array.begin(); it < json_array.end(); it++)
+  {
+    const auto index_expr = from_integer(index, java_int_type());
+    const dereference_exprt element_at_index(
+      plus_exprt(array_init_data, index_expr, array_init_data.type()),
+      array_init_data.type().subtype());
+    static_assignments_from_json(
+      *it, element_at_index, class_name, init_body, symbol_table, loc);
+    index++;
+  }
 }
 
 void static_assignments_from_json(
@@ -154,7 +181,7 @@ void static_assignments_from_json(
     if(has_prefix(id2string(java_class_type.get_tag()), "java::array["))
     {
       array_assignment(
-        get_untyped_array(json), expr, init_body, symbol_table, loc);
+        get_untyped_array(json), expr, class_name, init_body, symbol_table, loc);
       return;
     }
 
