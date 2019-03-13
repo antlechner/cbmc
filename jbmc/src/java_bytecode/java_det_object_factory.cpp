@@ -46,6 +46,8 @@ static void primitive_assignment(
   const jsont &json,
   code_blockt &init_body)
 {
+  if(json.is_null())
+    return;
   if(
     expr.type() == java_int_type() || expr.type() == java_byte_type() ||
     expr.type() == java_short_type() || expr.type() == java_long_type())
@@ -174,6 +176,73 @@ static void string_assignment(
   init_body.add(code_assignt(expr, literal_symbol));
 }
 
+static void components_assignment(
+  const jsont &json,
+  const exprt &expr,
+  const irep_idt &class_name,
+  code_blockt &init_body,
+  const java_class_typet &java_class_type,
+  symbol_table_baset &symbol_table,
+  const source_locationt &loc)
+{
+  for(const auto &component : java_class_type.components())
+  {
+    const typet &component_type = component.type();
+    irep_idt component_name = component.get_name();
+    if(
+      component_name == "@class_identifier" ||
+      component_name == "cproverMonitorCount")
+    {
+      continue;
+    }
+    member_exprt me(expr, component_name, component_type);
+    if(component_name[0] == '@')
+    {
+      namespacet ns{symbol_table};
+      const java_class_typet &base_type = to_java_class_type(ns.follow(me.type()));
+      components_assignment(json, me, class_name, init_body, base_type, symbol_table, loc);
+    }
+    else
+    {
+      const jsont member_json=json[id2string(component_name)];
+      static_assignments_from_json(
+        member_json, me, class_name, init_body, symbol_table, loc);
+    }
+  }
+}
+
+static void struct_assignment(
+  const jsont &json,
+  const exprt &expr,
+  const irep_idt &class_name,
+  code_blockt &init_body,
+  const java_class_typet &java_class_type,
+  symbol_table_baset &symbol_table,
+  const source_locationt &loc)
+{
+  if(
+    java_string_library_preprocesst::implements_java_char_sequence(
+      java_class_type) &&
+    java_class_type.has_component("length") &&
+    java_class_type.has_component("data"))
+  {
+    string_assignment(json, expr, class_name, init_body, symbol_table, loc);
+    return;
+  }
+
+  namespacet ns{symbol_table};
+  auto initial_object =
+    zero_initializer(expr.type(), source_locationt(), ns);
+  CHECK_RETURN(initial_object.has_value());
+  const irep_idt qualified_clsid =
+    "java::" + id2string(java_class_type.get_tag());
+  set_class_identifier(
+    to_struct_expr(*initial_object), ns, struct_tag_typet(qualified_clsid));
+  init_body.add(code_assignt(expr, *initial_object));
+  components_assignment(
+    json, expr, class_name, init_body, java_class_type, symbol_table, loc);
+}
+
 void static_assignments_from_json(
   const jsont &json,
   const exprt &expr,
@@ -213,39 +282,14 @@ void static_assignments_from_json(
       lifetimet::DYNAMIC,
       "tmp_prototype");
 
-    if(
-      java_string_library_preprocesst::implements_java_char_sequence(
-        java_class_type) &&
-      java_class_type.has_component("length") &&
-      java_class_type.has_component("data"))
-    {
-      string_assignment(json, init_expr, class_name, init_body, symbol_table, loc);
-      return;
-    }
-
-    auto initial_object =
-      zero_initializer(init_expr.type(), source_locationt(), ns);
-    CHECK_RETURN(initial_object.has_value());
-    const irep_idt qualified_clsid =
-      "java::" + id2string(java_class_type.get_tag());
-    set_class_identifier(
-      to_struct_expr(*initial_object), ns, struct_tag_typet(qualified_clsid));
-    init_body.add(code_assignt(init_expr, *initial_object));
-    for(const auto &component : java_class_type.components())
-    {
-      if(component == *java_class_type.components().begin())
-        continue;
-      const typet &component_type = component.type();
-      irep_idt component_name = component.get_name();
-      if(
-        component_name == "@class_identifier" ||
-        component_name == "cproverMonitorCount")
-        continue;
-      member_exprt me(init_expr, component_name, component_type);
-      const jsont member_json = json[id2string(component_name)];
-      static_assignments_from_json(
-        member_json, me, class_name, init_body, symbol_table, loc);
-    }
+    struct_assignment(
+      json,
+      init_expr,
+      class_name,
+      init_body,
+      java_class_type,
+      symbol_table,
+      loc);
   }
   else
   {
