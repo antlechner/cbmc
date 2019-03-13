@@ -11,12 +11,12 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 #include "java_object_factory.h"
 #include "java_utils.h"
 #include <goto-programs/class_hierarchy.h>
+#include <json/json_parser.h>
 #include <util/std_types.h>
 #include <util/std_expr.h>
 #include <util/std_code.h>
 #include <util/suffix.h>
 #include <util/arith_tools.h>
-#include <json/json_parser.h>
 #include <util/expr_initializer.h>
 #include <goto-programs/class_identifier.h>
 

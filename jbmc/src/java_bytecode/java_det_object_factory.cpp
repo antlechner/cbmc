@@ -158,6 +158,22 @@ static void array_assignment(
   }
 }
 
+static void string_assignment(
+  const jsont &json,
+  const exprt &expr,
+  const irep_idt &class_name,
+  code_blockt &init_body,
+  symbol_table_baset &symbol_table,
+  const source_locationt &loc)
+{
+  PRECONDITION(json.is_string());
+  exprt literal(ID_java_string_literal);
+  literal.set(ID_value, json.value);
+  const symbol_exprt literal_symbol =
+    get_or_create_string_literal_symbol(literal, symbol_table, true);
+  init_body.add(code_assignt(expr, literal_symbol));
+}
+
 void static_assignments_from_json(
   const jsont &json,
   const exprt &expr,
@@ -196,6 +212,17 @@ void static_assignments_from_json(
       pointer_type.subtype(),
       lifetimet::DYNAMIC,
       "tmp_prototype");
+
+    if(
+      java_string_library_preprocesst::implements_java_char_sequence(
+        java_class_type) &&
+      java_class_type.has_component("length") &&
+      java_class_type.has_component("data"))
+    {
+      string_assignment(json, init_expr, class_name, init_body, symbol_table, loc);
+      return;
+    }
+
     auto initial_object =
       zero_initializer(init_expr.type(), source_locationt(), ns);
     CHECK_RETURN(initial_object.has_value());
