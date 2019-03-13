@@ -739,7 +739,7 @@ code_blockt get_fast_clinit_body(
   const irep_idt &class_name = symbol_table.lookup_ref(function_id).type.get(ID_C_class);
   const std::string filename = "clinit-state/" + id2string(class_name).substr(6) + ".json";
   jsont json;
-  if(parse_json(filename, message_handler, json))
+  if(parse_json(filename, message_handler, json) || class_name == "java::com.diffblue.prototype.Colour")
   {
      const irep_idt &real_clinit_name = clinit_function_name(class_name);
      if(const auto clinit_func = symbol_table.lookup(real_clinit_name))
