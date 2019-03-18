@@ -15,15 +15,19 @@
 #include "java_string_literals.h"
 #include "java_utils.h"
 
+static bool has_type(const jsont &json)
+{
+  return json.is_object() &&
+         static_cast<const json_objectt &>(json).find("@type") !=
+           static_cast<const json_objectt &>(json).end();
+}
+
 /// For typed versions of non-reference types (primitive, string or array types)
 /// we retrieve their untyped contents by looking them up with the key
 /// specific to their type.
 static jsont get_untyped(const jsont &json, const std::string &object_key)
 {
-//  if(
-//    json.is_object() && static_cast<const json_objectt &>(json).find("type") !=
-//                          static_cast<const json_objectt &>(json).end())
-  if(json.is_object())
+  if(has_type(json))
   {
     return json[object_key];
   }
