@@ -1101,8 +1101,7 @@ bool java_bytecode_languaget::convert_single_method(
       writable_symbol.value = get_fast_clinit_body(
         function_id,
         symbol_table,
-        object_factory_parameters,
-        get_pointer_type_selector(),
+        needed_lazy_methods,
         get_message_handler());
       break;
     case synthetic_method_typet::STUB_CLASS_STATIC_INITIALIZER:

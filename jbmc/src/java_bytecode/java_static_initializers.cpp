@@ -731,8 +731,7 @@ code_ifthenelset get_clinit_wrapper_body(
 code_blockt get_fast_clinit_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
-  const java_object_factory_parameterst &object_factory_parameters,
-  const select_pointer_typet &pointer_type_selector,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   message_handlert &message_handler)
 {
   // find all static fields for class_name
@@ -768,6 +767,7 @@ code_blockt get_fast_clinit_body(
           class_name,
           body,
           symbol_table,
+          needed_lazy_methods,
           source_locationt());
       }
     });

@@ -108,6 +108,7 @@ static void array_assignment(
   const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   const source_locationt &loc)
 {
   PRECONDITION(json.is_array());
@@ -159,7 +160,7 @@ static void array_assignment(
       plus_exprt(array_init_data, index_expr, array_init_data.type()),
       array_init_data.type().subtype());
     static_assignments_from_json(
-      *it, element_at_index, class_name, init_body, symbol_table, loc);
+      *it, element_at_index, class_name, init_body, symbol_table, needed_lazy_methods, loc);
     index++;
   }
 }
@@ -170,6 +171,7 @@ static void string_assignment(
   const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   const source_locationt &loc)
 {
   PRECONDITION(json.is_string());
@@ -187,6 +189,7 @@ static void components_assignment(
   code_blockt &init_body,
   const java_class_typet &java_class_type,
   symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   const source_locationt &loc)
 {
   for(const auto &component : java_class_type.components())
@@ -204,13 +207,13 @@ static void components_assignment(
     {
       namespacet ns{symbol_table};
       const java_class_typet &base_type = to_java_class_type(ns.follow(me.type()));
-      components_assignment(json, me, class_name, init_body, base_type, symbol_table, loc);
+      components_assignment(json, me, class_name, init_body, base_type, symbol_table, needed_lazy_methods, loc);
     }
     else
     {
       const jsont member_json=json[id2string(component_name)];
       static_assignments_from_json(
-        member_json, me, class_name, init_body, symbol_table, loc);
+        member_json, me, class_name, init_body, symbol_table, needed_lazy_methods, loc);
     }
   }
 }
@@ -222,6 +225,7 @@ static void struct_assignment(
   code_blockt &init_body,
   const java_class_typet &java_class_type,
   symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   const source_locationt &loc)
 {
   if(
@@ -230,7 +234,7 @@ static void struct_assignment(
     java_class_type.has_component("length") &&
     java_class_type.has_component("data"))
   {
-    string_assignment(json, expr, class_name, init_body, symbol_table, loc);
+    string_assignment(json, expr, class_name, init_body, symbol_table, needed_lazy_methods, loc);
     return;
   }
 
@@ -244,7 +248,113 @@ static void struct_assignment(
     to_struct_expr(*initial_object), ns, struct_tag_typet(qualified_clsid));
   init_body.add(code_assignt(expr, *initial_object));
   components_assignment(
-    json, expr, class_name, init_body, java_class_type, symbol_table, loc);
+    json, expr, class_name, init_body, java_class_type, symbol_table, needed_lazy_methods, loc);
+}
+
+static void pointer_assignment(
+  const jsont &json,
+  const exprt &expr,
+  const pointer_typet &pointer,
+  const java_class_typet &java_class_type,
+  const irep_idt &class_name,
+  code_blockt &init_body,
+  symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
+  const source_locationt &loc)
+{
+  allocate_objectst allocate_objects(
+    ID_java,
+    source_locationt(),
+    clinit_wrapper_name(class_name),
+    symbol_table);
+  exprt init_expr = allocate_objects.allocate_object(
+    init_body,
+    expr,
+    pointer.subtype(),
+    lifetimet::DYNAMIC,
+    "tmp_prototype");
+
+  struct_assignment(
+    json,
+    init_expr,
+    class_name,
+    init_body,
+    java_class_type,
+    symbol_table,
+    needed_lazy_methods,
+    loc);
+}
+
+static pointer_typet pointer_to_subtype(
+  const pointer_typet &pointer,
+  const java_class_typet &replacement_class_type)
+{
+  if(can_cast_type<struct_tag_typet>(pointer.subtype()))
+  {
+    struct_tag_typet struct_tag_subtype(replacement_class_type.get_name());
+    return pointer_type(struct_tag_subtype);
+  }
+  return pointer_type(replacement_class_type);
+}
+
+static void subtype_pointer_assignment(
+  const jsont &json,
+  const exprt &expr,
+  const pointer_typet &pointer,
+  const java_class_typet &java_class_type,
+  const irep_idt &class_name,
+  code_blockt &init_body,
+  symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
+  const source_locationt &loc)
+{
+  namespacet ns{symbol_table};
+  const std::string &runtime_type = "java::" + json["@type"].value;
+  if(!symbol_table.has_symbol(runtime_type))
+    return; // TODO add warning here, falling back to default value
+  const auto &replacement_class_type =
+    to_java_class_type(symbol_table.lookup(runtime_type)->type);
+  pointer_typet replacement_pointer =
+    pointer_to_subtype(pointer, replacement_class_type);
+  if(!equal_java_types(pointer, replacement_pointer))
+  {
+    symbolt new_symbol = fresh_java_symbol(
+      replacement_pointer,
+      "tmp_prototype_fresh",
+      loc,
+      id2string(class_name) + "::fast_clinit", // TODO append "clinit" or similar
+      symbol_table);
+    if(needed_lazy_methods)
+      needed_lazy_methods->add_all_needed_classes(replacement_pointer);
+
+    pointer_assignment(
+      json,
+      new_symbol.symbol_expr(),
+      replacement_pointer,
+      to_java_class_type(ns.follow(replacement_class_type)),
+      class_name,
+      init_body,
+      symbol_table,
+      needed_lazy_methods,
+      loc);
+
+    const symbol_exprt real_pointer_symbol = new_symbol.symbol_expr();
+    init_body.add(
+      code_assignt(expr, typecast_exprt(real_pointer_symbol, pointer)));
+  }
+  else
+  {
+    pointer_assignment(
+      json,
+      expr,
+      pointer,
+      java_class_type,
+      class_name,
+      init_body,
+      symbol_table,
+      needed_lazy_methods,
+      loc);
+  }
 }
 
 void static_assignments_from_json(
@@ -253,46 +363,44 @@ void static_assignments_from_json(
   const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   const source_locationt &loc)
 {
   if(expr.type().id() == ID_pointer)
   {
-    const pointer_typet &pointer_type = to_pointer_type(expr.type());
+    const pointer_typet &pointer = to_pointer_type(expr.type());
     if(json.is_null())
     {
-      init_body.add(code_assignt(expr, null_pointer_exprt(pointer_type)));
+      init_body.add(code_assignt(expr, null_pointer_exprt(pointer)));
       return;
     }
     namespacet ns{symbol_table};
     const java_class_typet &java_class_type =
-      to_java_class_type(ns.follow(pointer_type.subtype()));
+      to_java_class_type(ns.follow(pointer.subtype()));
 
     if(has_prefix(id2string(java_class_type.get_tag()), "java::array["))
     {
       array_assignment(
-        get_untyped_array(json), expr, class_name, init_body, symbol_table, loc);
+        get_untyped_array(json), expr, class_name, init_body, symbol_table, needed_lazy_methods, loc);
       return;
     }
 
-    allocate_objectst allocate_objects(
-      ID_java,
-      source_locationt(),
-      clinit_wrapper_name(class_name),
-      symbol_table);
-    exprt init_expr = allocate_objects.allocate_object(
-      init_body,
-      expr,
-      pointer_type.subtype(),
-      lifetimet::DYNAMIC,
-      "tmp_prototype");
+    if(has_type(json))
+    {
+      subtype_pointer_assignment(
+        json, expr, pointer, java_class_type, class_name, init_body, symbol_table, needed_lazy_methods, loc);
+      return;
+    }
 
-    struct_assignment(
+    pointer_assignment(
       json,
-      init_expr,
+      expr,
+      pointer,
+      java_class_type,
       class_name,
       init_body,
-      java_class_type,
       symbol_table,
+      needed_lazy_methods,
       loc);
   }
   else

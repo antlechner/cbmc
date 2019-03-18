@@ -15,6 +15,7 @@ void static_assignments_from_json(
   const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   const source_locationt &loc);
 
 #endif //CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H

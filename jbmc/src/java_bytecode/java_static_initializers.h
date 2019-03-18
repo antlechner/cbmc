@@ -10,6 +10,7 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 #define CPROVER_JAVA_BYTECODE_JAVA_STATIC_INITIALIZERS_H
 
 #include "java_object_factory_parameters.h"
+#include "ci_lazy_methods_needed.h"
 #include "select_pointer_type.h"
 #include "synthetic_methods_map.h"
 
@@ -58,8 +59,7 @@ code_ifthenelset get_clinit_wrapper_body(
 code_blockt get_fast_clinit_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
-  const java_object_factory_parameterst &object_factory_parameters,
-  const select_pointer_typet &pointer_type_selector,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   message_handlert &message_handler);
 
 class stub_global_initializer_factoryt
