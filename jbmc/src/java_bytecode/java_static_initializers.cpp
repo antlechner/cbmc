@@ -764,6 +764,7 @@ code_blockt get_fast_clinit_body(
         static_assignments_from_json(
           static_field_json,
           static_field_expr,
+          {},
           class_name,
           body,
           symbol_table,
