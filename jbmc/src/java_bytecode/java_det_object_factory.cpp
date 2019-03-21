@@ -34,9 +34,19 @@ void gen_method_call_if_present(
 
 static bool has_type(const jsont &json)
 {
-  return json.is_object() &&
-         static_cast<const json_objectt &>(json).find("@type") !=
-           static_cast<const json_objectt &>(json).end();
+  const auto &json_object = static_cast<const json_objectt &>(json);
+  return json.is_object() && json_object.find("@type") != json_object.end();
+}
+
+static bool has_nondet_length(const jsont &json)
+{
+  const auto &json_object = static_cast<const json_objectt &>(json);
+  if(json.is_object() &&
+         json_object.find("@nondetLength") != json_object.end())
+  {
+    return (json["@nondetLength"].is_true());
+  }
+  return false;
 }
 
 static optionalt<std::string> given_type_for_pointer(
@@ -58,7 +68,7 @@ static optionalt<std::string> given_type_for_pointer(
 /// specific to their type.
 static jsont get_untyped(const jsont &json, const std::string &object_key)
 {
-  if(has_type(json))
+  if(has_type(json) || has_nondet_length(json))
   {
     return json[object_key];
   }
@@ -156,6 +166,7 @@ static void array_assignment(
     element_type_from_array = type_from_array->substr(1);
   }
 
+  const bool nondet_length = has_nondet_length(json);
   const jsont untyped_json = get_untyped_array(json);
   PRECONDITION(untyped_json.is_array());
   const json_arrayt &json_array =
@@ -168,10 +179,35 @@ static void array_assignment(
   const typet &element_type =
     static_cast<const typet &>(pointer.subtype().find(ID_element_type));
 
+  allocate_objectst allocate_objects(
+    ID_java, source_locationt(), clinit_wrapper_name(class_name), symbol_table);
+
   const auto array_size_expr = from_integer(array_size, java_int_type());
   side_effect_exprt java_new_array(ID_java_new_array, pointer, loc);
-  java_new_array.copy_to_operands(array_size_expr);
-  java_new_array.set(ID_length_upper_bound, array_size_expr);
+  if(!nondet_length)
+  {
+    java_new_array.copy_to_operands(array_size_expr);
+  }
+  else
+  {
+    // TODO de-duplicate from nondet.cpp
+    // Declare a symbol for the non deterministic integer.
+    const symbol_exprt nondet_symbol = fresh_java_symbol(
+      java_int_type(),
+      "tmp_prototype_length",
+      loc,
+      id2string(class_name) +
+      "::fast_clinit", // TODO append "clinit" or similar
+      symbol_table).symbol_expr();
+    init_body.add(code_declt(nondet_symbol));
+    // Assign the symbol any non deterministic integer value.
+    //   int_type name_prefix::nondet_int = NONDET(int_type)
+    init_body.add(code_assignt(
+      nondet_symbol, side_effect_expr_nondett(java_int_type(), loc)));
+    init_body.add(code_assumet(binary_predicate_exprt(
+      nondet_symbol, ID_ge, array_size_expr)));
+    java_new_array.copy_to_operands(nondet_symbol);
+  }
   java_new_array.type().subtype().set(ID_element_type, element_type);
   code_assignt assign(expr, java_new_array);
   assign.add_source_location() = loc;
@@ -186,11 +222,9 @@ static void array_assignment(
     init_array_expr =
       typecast_exprt(init_array_expr, pointer_type(element_type));
 
-  allocate_objectst allocate_objects(
-    ID_java, source_locationt(), clinit_wrapper_name(class_name), symbol_table);
   const symbol_exprt &array_init_data =
     allocate_objects.allocate_automatic_local_object(
-      init_array_expr.type(), "array_data_init");
+      init_array_expr.type(), "prototype_array_data_init");
   (void)array_init_data;
   code_assignt data_assign(array_init_data, init_array_expr);
   data_assign.add_source_location() = loc;
@@ -256,7 +290,7 @@ static void string_assignment(
   const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
-  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
+  optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
   const source_locationt &loc)
 {
   PRECONDITION(json.is_string());
@@ -274,7 +308,7 @@ static void components_assignment(
   code_blockt &init_body,
   const java_class_typet &java_class_type,
   symbol_table_baset &symbol_table,
-  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
+  optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
   const source_locationt &loc)
 {
   for(const auto &component : java_class_type.components())
