@@ -15,6 +15,23 @@
 #include "java_string_literals.h"
 #include "java_utils.h"
 
+// TODO refactor from JOF
+void gen_method_call_if_present(
+  code_blockt &assignments,
+  const exprt &instance_expr,
+  symbol_table_baset &symbol_table,
+  const irep_idt &method_name)
+{
+  if(const auto func = symbol_table.lookup(method_name))
+  {
+    const java_method_typet &type = to_java_method_type(func->type);
+    code_function_callt fun_call(func->symbol_expr());
+    if(type.has_this())
+      fun_call.arguments().push_back(address_of_exprt(instance_expr));
+    assignments.add(fun_call);
+  }
+}
+
 static bool has_type(const jsont &json)
 {
   return json.is_object() &&
@@ -198,6 +215,40 @@ static void array_assignment(
     index++;
   }
 }
+static void enum_assignment(
+  const jsont &json,
+  const exprt &expr,
+  const java_class_typet &java_class_type,
+  const irep_idt &class_name,
+  code_blockt &init_body,
+  symbol_table_baset &symbol_table,
+  optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
+  const source_locationt &loc)
+{
+  const std::string enum_name = id2string(java_class_type.get_name());
+  gen_method_call_if_present(
+    init_body, exprt(), symbol_table, clinit_wrapper_name(enum_name));
+  namespacet ns{symbol_table};
+  const irep_idt values_name = enum_name + ".$VALUES";
+  // TODO add check that $VALUES is in the symbol table / refactor from JOF
+  const symbolt &values = ns.lookup(values_name);
+
+  // Access members (length and data) of $VALUES array
+  dereference_exprt deref_expr(values.symbol_expr());
+  const auto &deref_struct_type = to_struct_type(ns.follow(deref_expr.type()));
+  PRECONDITION(is_valid_java_array(deref_struct_type));
+  const auto &comps = deref_struct_type.components();
+  const member_exprt length_expr(deref_expr, "length", comps[1].type());
+  const member_exprt enum_array_expr =
+    member_exprt(deref_expr, "data", comps[2].type());
+
+  const exprt ordinal_expr =
+    from_integer(std::stoi(json["ordinal"].value), java_int_type());
+
+  plus_exprt plus(enum_array_expr, ordinal_expr);
+  const dereference_exprt arraycellref(plus);
+  init_body.add(code_assignt(expr, typecast_exprt(arraycellref, expr.type())));
+}
 
 static void string_assignment(
   const jsont &json,
@@ -325,6 +376,25 @@ static void pointer_assignment(
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   const source_locationt &loc)
 {
+  namespacet ns {symbol_table};
+  const symbolt &outer = ns.lookup(class_name);
+  const auto &outer_class_type = to_java_class_type(ns.follow(outer.type));
+
+  if(java_class_type.get_base("java::java.lang.Enum") &&
+    !outer_class_type.get_base("java::java.lang.Enum"))
+  {
+    enum_assignment(
+      json,
+      expr,
+      java_class_type,
+      class_name,
+      init_body,
+      symbol_table,
+      needed_lazy_methods,
+      loc);
+    return;
+  }
+
   allocate_objectst allocate_objects(
     ID_java, source_locationt(), clinit_wrapper_name(class_name), symbol_table);
   exprt init_expr = allocate_objects.allocate_object(
@@ -466,7 +536,6 @@ void static_assignments_from_json(
         loc);
       return;
     }
-
     pointer_assignment(
       json,
       expr,
