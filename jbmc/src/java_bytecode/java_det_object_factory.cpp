@@ -293,9 +293,10 @@ static void string_assignment(
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
   const source_locationt &loc)
 {
-  PRECONDITION(json.is_string());
+  const auto json_string = get_untyped_primitive(json);
+  PRECONDITION(json_string.is_string());
   exprt literal(ID_java_string_literal);
-  literal.set(ID_value, json.value);
+  literal.set(ID_value, json_string.value);
   const symbol_exprt literal_symbol =
     get_or_create_string_literal_symbol(literal, symbol_table, true);
   init_body.add(code_assignt(expr, literal_symbol));
