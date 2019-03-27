@@ -17,7 +17,7 @@
 
 struct det_creation_infot {
   code_blockt &init_body;
-  const irep_idt &class_name;
+  allocate_objectst &allocate_objects;
   symbol_table_baset &symbol_table;
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods;
   const source_locationt &loc;
@@ -172,12 +172,6 @@ static void array_assignment(
   const typet &element_type =
     static_cast<const typet &>(pointer.subtype().find(ID_element_type));
 
-  allocate_objectst allocate_objects(
-    ID_java,
-    source_locationt(),
-    clinit_wrapper_name(info.class_name),
-    info.symbol_table);
-
   const auto array_size_expr = from_integer(array_size, java_int_type());
   side_effect_exprt java_new_array(ID_java_new_array, pointer, info.loc);
   if(!nondet_length)
@@ -188,13 +182,9 @@ static void array_assignment(
   {
     // TODO de-duplicate from nondet.cpp
     // Declare a symbol for the non deterministic integer.
-    const symbol_exprt nondet_symbol = fresh_java_symbol(
-      java_int_type(),
-      "tmp_prototype_length",
-      info.loc,
-      id2string(info.class_name) +
-      "::fast_clinit", // TODO append "clinit" or similar
-      info.symbol_table).symbol_expr();
+    const symbol_exprt &nondet_symbol =
+      info.allocate_objects.allocate_automatic_local_object(
+        java_int_type(), "tmp_prototype_length");
     info.init_body.add(code_declt(nondet_symbol));
     // Assign the symbol any non deterministic integer value.
     //   int_type name_prefix::nondet_int = NONDET(int_type)
@@ -219,7 +209,7 @@ static void array_assignment(
       typecast_exprt(init_array_expr, pointer_type(element_type));
 
   const symbol_exprt &array_init_data =
-    allocate_objects.allocate_automatic_local_object(
+    info.allocate_objects.allocate_automatic_local_object(
       init_array_expr.type(), "prototype_array_data_init");
   (void)array_init_data;
   code_assignt data_assign(array_init_data, init_array_expr);
@@ -351,23 +341,18 @@ static void pointer_assignment(
   const java_class_typet &java_class_type,
   det_creation_infot &info)
 {
-  namespacet ns {info.symbol_table};
-  const symbolt &outer = ns.lookup(info.class_name);
-  const auto &outer_class_type = to_java_class_type(ns.follow(outer.type));
+//  namespacet ns {info.symbol_table};
+//  const symbolt &outer = ns.lookup(info.class_name);
+//  const auto &outer_class_type = to_java_class_type(ns.follow(outer.type));
 
-  if(java_class_type.get_base("java::java.lang.Enum") &&
-    !outer_class_type.get_base("java::java.lang.Enum"))
+  if(java_class_type.get_base("java::java.lang.Enum"))
+//    &&!outer_class_type.get_base("java::java.lang.Enum"))
   {
     enum_assignment(json, expr, java_class_type, info);
     return;
   }
 
-  allocate_objectst allocate_objects(
-    ID_java,
-    source_locationt(),
-    clinit_wrapper_name(info.class_name),
-    info.symbol_table);
-  exprt init_expr = allocate_objects.allocate_object(
+  exprt init_expr = info.allocate_objects.allocate_object(
     info.init_body,
     expr,
     pointer.subtype(),
@@ -406,31 +391,23 @@ static void subtype_pointer_assignment(
     pointer_to_subtype(pointer, replacement_class_type);
   if(!equal_java_types(pointer, replacement_pointer))
   {
-    symbolt new_symbol = fresh_java_symbol(
-      replacement_pointer,
-      "tmp_prototype_fresh",
-      info.loc,
-      id2string(info.class_name) +
-        "::fast_clinit", // TODO append "clinit" or similar
-      info.symbol_table);
+    const auto &new_symbol =
+      info.allocate_objects.allocate_automatic_local_object(
+        replacement_pointer, "temp_prototype_fresh");
     if(info.needed_lazy_methods)
       info.needed_lazy_methods->add_all_needed_classes(replacement_pointer);
 
     pointer_assignment(
       json,
-      new_symbol.symbol_expr(),
+      new_symbol,
       replacement_pointer,
       to_java_class_type(ns.follow(replacement_class_type)),
       info);
-
-    const symbol_exprt real_pointer_symbol = new_symbol.symbol_expr();
     info.init_body.add(
-      code_assignt(expr, typecast_exprt(real_pointer_symbol, pointer)));
+      code_assignt(expr, typecast_exprt(new_symbol, pointer)));
   }
   else
-  {
     pointer_assignment(json, expr, pointer, java_class_type, info);
-  }
 }
 
 void static_assignments_from_json_rec(
@@ -481,7 +458,12 @@ void static_assignments_from_json(
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   const source_locationt &loc)
 {
+  allocate_objectst allocate_objects(
+    ID_java,
+    loc,
+    id2string(class_name) + "::fast_clinit",
+    symbol_table);
   det_creation_infot info{
-    init_body, class_name, symbol_table, needed_lazy_methods, loc};
+    init_body, allocate_objects, symbol_table, needed_lazy_methods, loc};
   static_assignments_from_json_rec(json, expr, {}, info);
 }
