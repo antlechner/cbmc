@@ -12,7 +12,6 @@
 void static_assignments_from_json(
   const jsont &json,
   const exprt &expr,
-  const optionalt<std::string> &override_type,
   const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
