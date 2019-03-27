@@ -15,23 +15,6 @@
 #include "java_string_literals.h"
 #include "java_utils.h"
 
-// TODO refactor from JOF
-void gen_method_call_if_present(
-  code_blockt &assignments,
-  const exprt &instance_expr,
-  symbol_table_baset &symbol_table,
-  const irep_idt &method_name)
-{
-  if(const auto func = symbol_table.lookup(method_name))
-  {
-    const java_method_typet &type = to_java_method_type(func->type);
-    code_function_callt fun_call(func->symbol_expr());
-    if(type.has_this())
-      fun_call.arguments().push_back(address_of_exprt(instance_expr));
-    assignments.add(fun_call);
-  }
-}
-
 static bool has_type(const jsont &json)
 {
   const auto &json_object = static_cast<const json_objectt &>(json);
@@ -249,6 +232,7 @@ static void array_assignment(
     index++;
   }
 }
+
 static void enum_assignment(
   const jsont &json,
   const exprt &expr,
@@ -260,8 +244,8 @@ static void enum_assignment(
   const source_locationt &loc)
 {
   const std::string enum_name = id2string(java_class_type.get_name());
-  gen_method_call_if_present(
-    init_body, exprt(), symbol_table, clinit_wrapper_name(enum_name));
+  if(const auto func = symbol_table.lookup(clinit_wrapper_name(enum_name)))
+    init_body.add(code_function_callt{func->symbol_expr()});
   namespacet ns{symbol_table};
   const irep_idt values_name = enum_name + ".$VALUES";
   // TODO add check that $VALUES is in the symbol table / refactor from JOF
