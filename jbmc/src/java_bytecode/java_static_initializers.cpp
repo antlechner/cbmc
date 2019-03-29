@@ -750,7 +750,7 @@ code_blockt get_fast_clinit_body(
     throw static_field_list_errort("Invalid JSON structure");
   }
   code_blockt body;
-  std::unordered_map<std::string, exprt> references;
+  std::unordered_map<std::string, det_creation_referencet> references;
   std::for_each(
     symbol_table.symbols.begin(),
     symbol_table.symbols.end(),
