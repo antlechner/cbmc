@@ -9,6 +9,12 @@
 #include <util/std_code.h>
 #include <util/symbol_table.h>
 
+struct det_creation_referencet
+{
+  exprt symbol;
+  optionalt<exprt> array_length;
+};
+
 void static_assignments_from_json(
   const jsont &json,
   const exprt &expr,
@@ -16,7 +22,7 @@ void static_assignments_from_json(
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
-  std::unordered_map<std::string, exprt> &references,
+  std::unordered_map<std::string, det_creation_referencet> &references,
   const source_locationt &loc);
 
 #endif //CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
