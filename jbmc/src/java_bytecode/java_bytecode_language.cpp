@@ -1102,7 +1102,8 @@ bool java_bytecode_languaget::convert_single_method(
         function_id,
         symbol_table,
         needed_lazy_methods,
-        get_message_handler());
+        get_message_handler(),
+        references);
       break;
     case synthetic_method_typet::STUB_CLASS_STATIC_INITIALIZER:
       writable_symbol.value =

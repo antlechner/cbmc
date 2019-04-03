@@ -9,6 +9,7 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 #ifndef CPROVER_JAVA_BYTECODE_JAVA_STATIC_INITIALIZERS_H
 #define CPROVER_JAVA_BYTECODE_JAVA_STATIC_INITIALIZERS_H
 
+#include "java_det_object_factory.h"
 #include "java_object_factory_parameters.h"
 #include "ci_lazy_methods_needed.h"
 #include "select_pointer_type.h"
@@ -60,7 +61,8 @@ code_blockt get_fast_clinit_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
-  message_handlert &message_handler);
+  message_handlert &message_handler,
+  std::unordered_map<std::string, det_creation_referencet> &references);
 
 class stub_global_initializer_factoryt
 {

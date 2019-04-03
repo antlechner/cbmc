@@ -732,48 +732,59 @@ code_blockt get_fast_clinit_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
-  message_handlert &message_handler)
+  message_handlert &message_handler,
+  std::unordered_map<std::string, det_creation_referencet> &references)
 {
   // find all static fields for class_name
   const irep_idt &class_name = symbol_table.lookup_ref(function_id).type.get(ID_C_class);
-  const std::string filename = "clinit-state/" + id2string(class_name).substr(6) + ".json";
+//  const std::string filename = "clinit-state/" + id2string(class_name).substr(6) + ".json";
+  const std::string filename = "clinit-state-file.json";
   jsont json;
 //  if(parse_json(filename, message_handler, json) || class_name == "java::com.diffblue.prototype.Colour")
-  if(parse_json(filename, message_handler, json))
+  if(!parse_json(filename, message_handler, json) && json.is_object())
   {
-     const irep_idt &real_clinit_name = clinit_function_name(class_name);
-     if(const auto clinit_func = symbol_table.lookup(real_clinit_name))
-       return code_blockt{{code_function_callt{clinit_func->symbol_expr()}}};
-  }
-  if(!json.is_object())
-  {
-    throw static_field_list_errort("Invalid JSON structure");
-  }
-  code_blockt body;
-  std::unordered_map<std::string, det_creation_referencet> references;
-  std::for_each(
-    symbol_table.symbols.begin(),
-    symbol_table.symbols.end(),
-    [&](const std::pair<irep_idt, symbolt> &symbol)
+    const auto &json_object = static_cast<const json_objectt &>(json);
+    if(json_object.find(id2string(class_name).substr(6)) != json_object.end())
     {
-      if(
-        symbol.second.type.get(ID_C_class)==class_name &&
-        symbol.second.is_static_lifetime)
+      const auto &class_json = json_object[id2string(class_name).substr(6)];
+      if(class_json.is_object())
       {
-        const jsont &static_field_json = json[id2string(symbol.second.base_name)];
-        const symbol_exprt &static_field_expr=symbol.second.symbol_expr();
-        static_assignments_from_json(
-          static_field_json,
-          static_field_expr,
-          class_name,
-          body,
-          symbol_table,
-          needed_lazy_methods,
-          references,
-          source_locationt());
+        code_blockt body;
+//        std::unordered_map<std::string, det_creation_referencet> references;
+        std::for_each(
+          symbol_table.symbols.begin(),
+          symbol_table.symbols.end(),
+          [&](const std::pair<irep_idt, symbolt> &symbol)
+          {
+            if(
+              symbol.second.type.get(ID_C_class)==class_name &&
+              symbol.second.is_static_lifetime)
+            {
+              const jsont &static_field_json = class_json[id2string(symbol.second.base_name)];
+              const symbol_exprt &static_field_expr=symbol.second.symbol_expr();
+              static_assignments_from_json(
+                static_field_json,
+                static_field_expr,
+                class_name,
+                body,
+                symbol_table,
+                needed_lazy_methods,
+                references,
+                source_locationt());
+            }
+          });
+        return body;
       }
-    });
-  return body;
+    }
+  }
+  const irep_idt &real_clinit_name = clinit_function_name(class_name);
+  if(const auto clinit_func = symbol_table.lookup(real_clinit_name))
+    return code_blockt{{code_function_callt{clinit_func->symbol_expr()}}};
+  return code_blockt{};
+//  if(!json.is_object())
+//  {
+//    throw static_field_list_errort("Invalid JSON structure");
+//  }
 }
 
 /// Create static initializer wrappers for all classes that need them.
