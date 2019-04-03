@@ -62,6 +62,11 @@ public:
     const typet &allocate_type,
     const irep_idt &basename_prefix = "tmp");
 
+  exprt allocate_dynamic_object_symbol(
+    code_blockt &output_code,
+    const exprt &target_expr,
+    const typet &allocate_type);
+
   exprt allocate_dynamic_object(
     code_blockt &output_code,
     const exprt &target_expr,
