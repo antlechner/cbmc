@@ -1,7 +1,7 @@
 #ifndef CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
 #define CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
 
-#include "java_bytecode_language.h"
+#include "ci_lazy_methods_needed.h"
 #include "select_pointer_type.h"
 
 #include <util/allocate_objects.h>
@@ -11,7 +11,10 @@
 
 struct det_creation_referencet
 {
+  /// Expression for the symbol that stores the value that may be reference
+  /// equal to other values.
   exprt symbol;
+  /// If `symbol` is an arrary, this expression stores its length.
   optionalt<exprt> array_length;
 };
 
