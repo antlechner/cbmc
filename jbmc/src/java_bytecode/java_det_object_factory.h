@@ -9,18 +9,20 @@
 #include <util/std_code.h>
 #include <util/symbol_table.h>
 
+/// Information to store when several references point to the same Java object.
 struct det_creation_referencet
 {
   /// Expression for the symbol that stores the value that may be reference
   /// equal to other values.
-  exprt symbol;
-  /// If `symbol` is an arrary, this expression stores its length.
+  exprt expr;
+
+  /// If `symbol` is an array, this expression stores its length.
   optionalt<exprt> array_length;
 };
 
-void static_assignments_from_json(
-  const jsont &json,
+void assign_from_json(
   const exprt &expr,
+  const jsont &json,
   const irep_idt &class_name,
   code_blockt &init_body,
   symbol_table_baset &symbol_table,
