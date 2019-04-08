@@ -762,9 +762,9 @@ code_blockt get_fast_clinit_body(
             {
               const jsont &static_field_json = class_json[id2string(symbol.second.base_name)];
               const symbol_exprt &static_field_expr=symbol.second.symbol_expr();
-              static_assignments_from_json(
-                static_field_json,
+              assign_from_json(
                 static_field_expr,
+                static_field_json,
                 class_name,
                 body,
                 symbol_table,
