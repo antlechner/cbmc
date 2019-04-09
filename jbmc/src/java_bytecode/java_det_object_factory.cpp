@@ -62,9 +62,8 @@ static pointer_and_class_typest pointer_and_class_types(
   const symbol_table_baset &symbol_table)
 {
   const pointer_typet &pointer = to_pointer_type(expr.type());
-  namespacet ns{symbol_table};
   const java_class_typet &java_class_type =
-    to_java_class_type(ns.follow(pointer.subtype()));
+    to_java_class_type(namespacet{symbol_table}.follow(pointer.subtype()));
   return {pointer, java_class_type};
 }
 
@@ -156,6 +155,13 @@ static jsont get_untyped_array(const jsont &json)
   return get_untyped(json, "@items");
 }
 
+/// Note that this differs from the standard serialization of strings in
+/// json-io. TODO add markdown file
+static jsont get_untyped_string(const jsont &json)
+{
+  return get_untyped(json, "@string");
+}
+
 /// Given a JSON representation of a (non-array) reference-typed object and a
 /// type inferred from the type of a containing array, get the runtime type of
 /// the corresponding pointer expression.
@@ -187,7 +193,6 @@ static optionalt<java_class_typet> given_runtime_type(
     runtime_type =
       "java::" + type_from_array->substr(1, type_from_array->length() - 2);
   }
-  namespacet ns{symbol_table};
   if(!symbol_table.has_symbol(runtime_type))
     return {}; // TODO add warning here, falling back to default value
   const auto &replacement_class_type =
@@ -267,15 +272,13 @@ static void assign_primitive_from_json(
   {
     ieee_floatt ieee_float(to_floatbv_type(expr.type()));
     ieee_float.from_double(std::stod(json.value));
-    const exprt &rhs = ieee_float.to_expr();
-    init_body.add(code_assignt(expr, rhs));
+    init_body.add(code_assignt(expr, ieee_float.to_expr()));
   }
   else if(expr.type() == java_float_type())
   {
     ieee_floatt ieee_float(to_floatbv_type(expr.type()));
     ieee_float.from_float(std::stof(json.value));
-    const exprt &rhs = ieee_float.to_expr();
-    init_body.add(code_assignt(expr, rhs));
+    init_body.add(code_assignt(expr, ieee_float.to_expr()));
   }
   else if(expr.type() == java_char_type())
   {
@@ -366,6 +369,10 @@ static void allocate_array(
   info.block.add(assign);
 }
 
+/// One of the cases in the recursive algorithm: the case where \p expr
+/// represents an array. The length of the array will be \p given_length_expr if
+/// it is specified, or the number of elements given in \p json otherwise.
+/// See \ref assign_from_json_rec.
 static void assign_array_from_json(
   const exprt &expr,
   const jsont &json,
@@ -377,10 +384,6 @@ static void assign_array_from_json(
   PRECONDITION(untyped_json.is_array());
   const auto &json_array =
     static_cast<const json_arrayt &>(untyped_json);
-  const size_t array_size = json_array.size();
-  const pointer_typet &pointer = to_pointer_type(expr.type());
-  const typet &element_type =
-    static_cast<const typet &>(pointer.subtype().find(ID_element_type));
 
   exprt length_expr;
   if(given_length_expr)
@@ -393,25 +396,27 @@ static void assign_array_from_json(
       length_expr, side_effect_expr_nondett(java_int_type(), info.loc)));
     allocate_array(expr, json, length_expr, info);
   }
-  const auto array_size_expr = from_integer(array_size, java_int_type());
+  const auto number_of_elements =
+    from_integer(json_array.size(), java_int_type());
   // TODO de-duplicate from nondet.cpp ?
   // Declare a symbol for the non deterministic integer.
   info.block.add(code_assumet(binary_predicate_exprt(
-    length_expr, ID_ge, array_size_expr)));
+    length_expr, ID_ge, number_of_elements)));
   if(!has_nondet_length(json))
   {
     info.block.add(code_assumet(binary_predicate_exprt(
-      length_expr, ID_le, array_size_expr)));
+      length_expr, ID_le, number_of_elements)));
   }
 
-  namespacet ns{info.symbol_table};
-  const java_class_typet &java_class_type =
-    to_java_class_type(ns.follow(pointer.subtype()));
-  dereference_exprt deref_expr(expr, java_class_type);
+  const auto &types = pointer_and_class_types(expr, info.symbol_table);
+  const typet &element_type =
+    static_cast<const typet &>(types.pointer.subtype().find(ID_element_type));
+  const dereference_exprt deref{expr, types.java_class_type};
   assign_array_data_component_from_json(
-    deref_expr, json, type_from_array, java_class_type, element_type, info);
+    deref, json, type_from_array, types.java_class_type, element_type, info);
 }
 
+/// One of the cases in the recursive algorithm: TODO
 static void assign_enum_from_json(
   const exprt &expr,
   const jsont &json,
@@ -421,7 +426,7 @@ static void assign_enum_from_json(
   const std::string enum_name = id2string(java_class_type.get_name());
   if(const auto func = info.symbol_table.lookup(clinit_wrapper_name(enum_name)))
     info.block.add(code_function_callt{func->symbol_expr()});
-  namespacet ns{info.symbol_table};
+  const namespacet ns{info.symbol_table};
   const irep_idt values_name = enum_name + ".$VALUES";
   // TODO add check that $VALUES is in the symbol table / refactor from JOF
   const symbolt &values = ns.lookup(values_name);
@@ -444,6 +449,28 @@ static void assign_enum_from_json(
     code_assignt(expr, typecast_exprt(arraycellref, expr.type())));
 }
 
+// TODO remove after rebasing
+static bool is_java_string_type(const struct_typet &struct_type)
+{
+  return struct_type.id() == ID_struct &&
+         java_string_library_preprocesst::implements_java_char_sequence(
+           struct_type) &&
+         struct_type.has_component("length") &&
+         struct_type.has_component("data");
+}
+
+// TODO remove after rebasing
+static symbol_exprt get_or_create_string_literal_symbol(
+  const irep_idt &string_value,
+  symbol_table_baset &symbol_table,
+  bool string_refinement_enabled)
+{
+  exprt literal{ID_java_string_literal};
+  literal.set(ID_value, string_value);
+  return get_or_create_string_literal_symbol(
+    literal, symbol_table, string_refinement_enabled);
+}
+
 /// One of the cases in the recursive algorithm: the case where \p expr
 /// represents a string.
 /// See \ref assign_from_json_rec.
@@ -452,13 +479,12 @@ static void assign_string_from_json(
   const exprt &expr,
   det_creation_infot &info)
 {
-  const auto json_string = get_untyped_primitive(json);
+  const auto json_string = get_untyped_string(json);
   PRECONDITION(json_string.is_string());
-  exprt literal(ID_java_string_literal);
-  literal.set(ID_value, json_string.value);
-  const symbol_exprt literal_symbol =
-    get_or_create_string_literal_symbol(literal, info.symbol_table, true);
-  info.block.add(code_assignt(expr, literal_symbol));
+  info.block.add(code_assignt(
+    expr,
+    get_or_create_string_literal_symbol(
+      json_string.value, info.symbol_table, true)));
 }
 
 /// Helper function for \ref assign_struct_from_json which recursively assigns
@@ -467,31 +493,26 @@ static void assign_string_from_json(
 static void assign_struct_components_from_json(
   const exprt &expr,
   const jsont &json,
-  const java_class_typet &java_class_type,
   det_creation_infot &info)
 {
+  const java_class_typet &java_class_type =
+    to_java_class_type(namespacet{info.symbol_table}.follow(expr.type()));
   for(const auto &component : java_class_type.components())
   {
-    const typet &component_type = component.type();
-    irep_idt component_name = component.get_name();
+    const irep_idt &component_name = component.get_name();
     if(
       component_name == "@class_identifier" ||
       component_name == "cproverMonitorCount")
     {
       continue;
     }
-    member_exprt me(expr, component_name, component_type);
-    if(component_name[0] == '@')
-    {
-      namespacet ns{info.symbol_table};
-      const java_class_typet &base_type =
-        to_java_class_type(ns.follow(me.type()));
-      assign_struct_components_from_json(me, json, base_type, info);
-    }
-    else
+    member_exprt member_expr{expr, component_name, component.type()};
+    if(component_name[0] == '@') // component is parent struct type
+      assign_struct_components_from_json(member_expr, json, info);
+    else // component is class field (pointer to struct)
     {
       const jsont member_json = json[id2string(component_name)];
-      assign_from_json_rec(me, member_json, {}, info);
+      assign_from_json_rec(member_expr, member_json, {}, info);
     }
   }
 }
@@ -503,28 +524,23 @@ static void assign_struct_components_from_json(
 static void assign_struct_from_json(
   const exprt &expr,
   const jsont &json,
-  const java_class_typet &java_class_type,
   det_creation_infot &info)
 {
-  if(
-    java_string_library_preprocesst::implements_java_char_sequence(
-      java_class_type) &&
-    java_class_type.has_component("length") &&
-    java_class_type.has_component("data"))
-  {
+  const namespacet ns{info.symbol_table};
+  const java_class_typet &java_class_type =
+    to_java_class_type(ns.follow(expr.type()));
+  if(is_java_string_type(java_class_type))
     assign_string_from_json(json, expr, info);
-  }
   else
   {
-    namespacet ns{info.symbol_table};
     auto initial_object = zero_initializer(expr.type(), source_locationt(), ns);
     CHECK_RETURN(initial_object.has_value());
-    const irep_idt qualified_clsid =
-      "java::" + id2string(java_class_type.get_tag());
     set_class_identifier(
-      to_struct_expr(*initial_object), ns, struct_tag_typet(qualified_clsid));
+      to_struct_expr(*initial_object),
+      ns,
+      struct_tag_typet("java::" + id2string(java_class_type.get_tag())));
     info.block.add(code_assignt(expr, *initial_object));
-    assign_struct_components_from_json(expr, json, java_class_type, info);
+    assign_struct_components_from_json(expr, json, info);
   }
 }
 
@@ -537,7 +553,7 @@ static void assign_pointer_from_json(
   const jsont &json,
   det_creation_infot &info)
 {
-//  namespacet ns {info.symbol_table};
+//  const namespacet ns {info.symbol_table};
 //  const symbolt &outer = ns.lookup(info.class_name);
 //  const auto &outer_class_type = to_java_class_type(ns.follow(outer.type));
 
@@ -552,8 +568,7 @@ static void assign_pointer_from_json(
     exprt dereferenced_symbol_expr =
       info.allocate_objects.allocate_dynamic_object(
         info.block, expr, types.pointer.subtype());
-    assign_struct_from_json(
-      dereferenced_symbol_expr, json, types.java_class_type, info);
+    assign_struct_from_json(dereferenced_symbol_expr, json, info);
   }
 }
 
@@ -646,10 +661,7 @@ static void assign_reference_from_json(
         reference.expr, json, reference.array_length, type_from_array, info);
     }
     else
-    {
-      assign_struct_from_json(
-        dereference_exprt(reference.expr), json, types.java_class_type, info);
-    }
+      assign_struct_from_json(dereference_exprt(reference.expr), json, info);
   }
   info.block.add(
     code_assignt{expr, typecast_exprt{reference.expr, expr.type()}});
