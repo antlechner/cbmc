@@ -106,7 +106,7 @@ static bool is_reference(const jsont &json)
 /// See \ref has_id and \ref is_reference.
 static std::string get_id(const jsont &json)
 {
-  INVARIANT(has_id(json) || is_reference(json), "");
+  PRECONDITION(has_id(json) || is_reference(json));
   if(has_id(json))
     return json["@id"].value;
   return json["@ref"].value;
@@ -126,23 +126,8 @@ static bool has_nondet_length(const jsont &json)
   return false;
 }
 
-static optionalt<std::string> given_type_for_pointer(
-  const jsont &json,
-  const optionalt<std::string> &type_from_array)
-{
-  if(has_type(json))
-    return "java::" + json["@type"].value;
-  if(!type_from_array)
-    return {};
-  PRECONDITION(
-    type_from_array->find('L') == 0 &&
-    type_from_array->rfind(';') == type_from_array->length() - 1);
-  return "java::" + type_from_array->substr(1, type_from_array->length() - 2);
-}
-
-/// For typed versions of non-reference types (primitive, string or array types)
-/// we retrieve their untyped contents by looking them up with the key
-/// specific to their type.
+/// For typed versions primitive, string or array types, looks up their untyped
+/// contents with the key specific to their type.
 static jsont get_untyped(const jsont &json, const std::string &object_key)
 {
   if(has_type(json) || has_nondet_length(json))
@@ -158,6 +143,61 @@ static jsont get_untyped_primitive(const jsont &json)
 static jsont get_untyped_array(const jsont &json)
 {
   return get_untyped(json, "@items");
+}
+
+/// Given a JSON representation of a (non-array) reference-typed object and a
+/// type inferred from the type of a containing array, get the runtime type of
+/// the corresponding pointer expression.
+/// \param json: JSON representation of a non-array object. If it contains a
+///   `@type` field, this takes priority over \p type_from_array. Types for non-
+///   array objects are stored in the JSON in the format
+///   "my.package.name.ClassName".
+/// \param type_from_array: may contain an element type name given by a
+///   containing array. Such types is stored in the form
+///   "Lmy.package.name.ClassName;".
+/// \return TODO
+static optionalt<std::string> given_runtime_type(
+  const jsont &json,
+  const optionalt<std::string> &type_from_array)
+{
+  if(has_type(json))
+    return "java::" + json["@type"].value;
+  if(!type_from_array)
+    return {};
+  PRECONDITION(
+    type_from_array->find('L') == 0 &&
+    type_from_array->rfind(';') == type_from_array->length() - 1);
+  return "java::" + type_from_array->substr(1, type_from_array->length() - 2);
+}
+
+/// Given a JSON representation of an array and a type inferred from the type of
+/// a containing array, get the element type by removing the leading '['.
+/// Types for arrays are stored in the format "[Lmy.package.name.ClassName;".
+/// In this case, the returned value would be "Lmy.package.name.ClassName;".
+/// \p type_from_array would only have a value if this array is stored within
+/// another array, i.e.\ within a ClassName[][].
+/// Keeping track of array types in this way is necessary to assign generic
+/// arrays with no compile-time types.
+/// \param json: JSON representation of an array. If it contains a `@type`
+///   field, this takes priority over \p type_from_array.
+/// \param type_from_array: may contain a type name from a containing array.
+/// \return if the type of an array was given, the type of its elements.
+static optionalt<std::string> element_type_from_array_type(
+  const jsont &json,
+  const optionalt<std::string> &type_from_array)
+{
+  if(has_type(json))
+  {
+    const std::string &json_array_type = json["@type"].value;
+    PRECONDITION(json_array_type.find('[') == 0);
+    return json_array_type.substr(1);
+  }
+  else if(type_from_array)
+  {
+    PRECONDITION(type_from_array->find('[') == 0);
+    return type_from_array->substr(1);
+  }
+  return {};
 }
 
 /// Compile-time primitive type with no "@type" field.
@@ -216,36 +256,6 @@ static void assign_primitive_from_json(
     const exprt &rhs = ieee_float.to_expr();
     init_body.add(code_assignt(expr, rhs));
   }
-}
-
-/// Given a json representation of an array and a type inferred from the type of
-/// a containing array, get the element type by removing the leading '['.
-/// Types are stored in the format "[Lmy.package.name.ClassName;".
-/// In this case, the returned value would be "Lmy.package.name.ClassName;".
-/// \p type_from_array would only have a value if this array is stored within
-/// another array, i.e.\ within a ClassName[][].
-/// Keeping track of array types in this way is necessary to assign generic
-/// arrays with no compile-time types.
-/// \param json: json representation of an array. If it contains a `@type`
-///   field, this takes priority over \p type_from_array.
-/// \param type_from_array: may contain a type name from a containing array.
-/// \return: if the type of an array was given, the type of its elements.
-static optionalt<std::string> element_type_from_array_type(
-  const jsont &json,
-  const optionalt<std::string> &type_from_array)
-{
-  if(has_type(json))
-  {
-    const std::string &json_array_type = json["@type"].value;
-    PRECONDITION(json_array_type.find('[') == 0);
-    return json_array_type.substr(1);
-  }
-  else if(type_from_array)
-  {
-    PRECONDITION(type_from_array->find('[') == 0);
-    return type_from_array->substr(1);
-  }
-  return {};
 }
 
 static void assign_array_data_component_from_json(
@@ -621,7 +631,7 @@ void assign_from_json_rec(
       assign_array_from_json(expr, json, {}, type_from_array, info);
       return;
     }
-    const auto runtime_type = given_type_for_pointer(json, type_from_array);
+    const auto runtime_type = given_runtime_type(json, type_from_array);
     if(runtime_type)
     {
       assign_pointer_with_given_type_from_json(
