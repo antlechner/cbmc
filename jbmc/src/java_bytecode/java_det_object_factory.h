@@ -20,11 +20,15 @@ struct det_creation_referencet
   optionalt<exprt> array_length;
 };
 
+/// Given an expression \p expr representing a Java object or primitive and a
+/// JSON representation \p json of a Java object or primitive of a compatible
+/// type, adds statements to \p block to assign \p expr to the deterministic
+/// value specified by \p json.
 void assign_from_json(
   const exprt &expr,
   const jsont &json,
   const irep_idt &class_name,
-  code_blockt &init_body,
+  code_blockt &block,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
   std::unordered_map<std::string, det_creation_referencet> &references,
