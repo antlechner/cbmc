@@ -310,76 +310,89 @@ static void assign_null(const exprt &expr, code_blockt &block)
     code_assignt(expr, null_pointer_exprt(to_pointer_type(expr.type()))));
 }
 
+/// In the case of an assignment of an array given a JSON representation, this
+/// function assigns the data component of the array, which contains the array
+/// elements. \p expr is a pointer to the array containing the component.
 static void assign_array_data_component_from_json(
-  const exprt &deref_expr,
+  const exprt &expr,
   const jsont &json,
   const optionalt<std::string> &type_from_array,
-  const java_class_typet &java_class_type,
-  const typet &element_type,
   det_creation_infot &info)
 {
   const jsont untyped_json = get_untyped_array(json);
   PRECONDITION(untyped_json.is_array());
   const auto &json_array =
     static_cast<const json_arrayt &>(untyped_json);
-  const auto &comps = java_class_type.components();
-  const member_exprt length_expr(deref_expr, "length", comps[1].type());
-  exprt init_array_expr = member_exprt(deref_expr, "data", comps[2].type());
 
-  if(init_array_expr.type() != pointer_type(element_type))
-    init_array_expr =
-      typecast_exprt(init_array_expr, pointer_type(element_type));
+  const auto &types = pointer_and_class_types(expr, info.symbol_table);
+  const auto &components = types.java_class_type.components();
+  const auto &element_type = static_cast<const typet &>(
+    to_pointer_type(expr.type()).subtype().find(ID_element_type));
+  const exprt data_member_expr = typecast_exprt::conditional_cast(
+    member_exprt{dereference_exprt{expr}, "data", components[2].type()},
+    pointer_type(element_type));
 
   const symbol_exprt &array_init_data =
     info.allocate_objects.allocate_automatic_local_object(
-      init_array_expr.type(), "prototype_array_data_init");
-  (void)array_init_data;
-  code_assignt data_assign(array_init_data, init_array_expr);
-  data_assign.add_source_location() = info.loc;
+      data_member_expr.type(), "det_array_data_init");
+  code_assignt data_assign{array_init_data, data_member_expr, info.loc};
   info.block.add(data_assign);
 
   size_t index = 0;
   const optionalt<std::string> inferred_element_type =
     element_type_from_array_type(json, type_from_array);
-  for(auto it = json_array.begin(); it < json_array.end(); it++)
+  for(auto it = json_array.begin(); it < json_array.end(); it++, index++)
   {
     const auto index_expr = from_integer(index, java_int_type());
-    const dereference_exprt element_at_index(
-      plus_exprt(array_init_data, index_expr, array_init_data.type()),
-      array_init_data.type().subtype());
+    const dereference_exprt element_at_index{
+      plus_exprt{array_init_data, index_expr, array_init_data.type()}};
     assign_from_json_rec(
       element_at_index, *it, inferred_element_type, info);
-    index++;
   }
 }
 
+/// Allocates a fresh array of length \p array_length_expr and assigns \p expr
+/// to it.
 static void allocate_array(
   const exprt &expr,
-  const jsont &json,
-  const exprt &array_size_expr,
+  const exprt &array_length_expr,
   det_creation_infot &info)
 {
   const pointer_typet &pointer = to_pointer_type(expr.type());
-  const typet &element_type =
+  const auto &element_type =
     static_cast<const typet &>(pointer.subtype().find(ID_element_type));
-  side_effect_exprt java_new_array(ID_java_new_array, pointer, info.loc);
-  java_new_array.copy_to_operands(array_size_expr);
+  side_effect_exprt java_new_array{ID_java_new_array, pointer, info.loc};
+  java_new_array.copy_to_operands(array_length_expr);
   java_new_array.type().subtype().set(ID_element_type, element_type);
-  code_assignt assign(expr, java_new_array, info.loc);
+  code_assignt assign{expr, java_new_array, info.loc};
   info.block.add(assign);
 }
 
 /// One of the cases in the recursive algorithm: the case where \p expr
-/// represents an array. The length of the array will be \p given_length_expr if
-/// it is specified, or the number of elements given in \p json otherwise.
-/// See \ref assign_from_json_rec.
+/// represents an array.
+/// The length of the array is given by a symbol: \p given_length_expr if it is
+/// specified (this will be the case when there are two or more reference-equal
+/// arrays), or a fresh symbol otherwise.
+/// If \p given_length_expr is specified, we assume that an array with this
+/// symbol as its length has already been allocated and that \p expr has been
+/// assigned to it.
+/// Either way, the length symbol stores a nondet integer, and we add
+/// constraints on this: if "nondetLength" is specified in \p json, then the
+/// number of elements specified in \p json should be the minimum length of the
+/// array. Otherwise the number of elements should be the exact length of the
+/// array.
+/// For the assignment of the array elements, see
+/// \ref assign_array_data_component_from_json.
+/// For the overall algorithm, see \ref assign_from_json_rec.
 static void assign_array_from_json(
   const exprt &expr,
   const jsont &json,
-  const optionalt<exprt> &given_length_expr,
+  const optionalt<symbol_exprt> &given_length_expr,
   const optionalt<std::string> &type_from_array,
   det_creation_infot &info)
 {
+  PRECONDITION(expr.type().id() == ID_pointer);
+  PRECONDITION(has_array_type(expr, info.symbol_table));
   const jsont untyped_json = get_untyped_array(json);
   PRECONDITION(untyped_json.is_array());
   const auto &json_array =
@@ -392,28 +405,22 @@ static void assign_array_from_json(
   {
     length_expr = info.allocate_objects.allocate_automatic_local_object(
       java_int_type(), "tmp_prototype_length");
-    info.block.add(code_assignt(
-      length_expr, side_effect_expr_nondett(java_int_type(), info.loc)));
-    allocate_array(expr, json, length_expr, info);
+    info.block.add(code_assignt{
+      length_expr, side_effect_expr_nondett{java_int_type(), info.loc}});
+    allocate_array(expr, length_expr, info);
   }
   const auto number_of_elements =
     from_integer(json_array.size(), java_int_type());
-  // TODO de-duplicate from nondet.cpp ?
-  // Declare a symbol for the non deterministic integer.
-  info.block.add(code_assumet(binary_predicate_exprt(
-    length_expr, ID_ge, number_of_elements)));
+  info.block.add(code_assumet{binary_predicate_exprt{
+    length_expr, ID_ge, number_of_elements}});
   if(!has_nondet_length(json))
   {
-    info.block.add(code_assumet(binary_predicate_exprt(
-      length_expr, ID_le, number_of_elements)));
+    info.block.add(code_assumet{binary_predicate_exprt{
+      length_expr, ID_le, number_of_elements}});
   }
 
-  const auto &types = pointer_and_class_types(expr, info.symbol_table);
-  const typet &element_type =
-    static_cast<const typet &>(types.pointer.subtype().find(ID_element_type));
-  const dereference_exprt deref{expr, types.java_class_type};
   assign_array_data_component_from_json(
-    deref, json, type_from_array, types.java_class_type, element_type, info);
+    expr, json, type_from_array, info);
 }
 
 /// One of the cases in the recursive algorithm: TODO
@@ -629,7 +636,7 @@ static void assign_reference_from_json(
   det_creation_referencet reference;
   if(id_it == info.references.end())
   {
-    if(has_prefix(id2string(types.java_class_type.get_tag()), "java::array["))
+    if(has_array_type(expr, info.symbol_table))
     {
       reference.expr = info.allocate_objects.allocate_automatic_local_object(
         types.pointer, "temp_prototype_ref");
@@ -638,7 +645,7 @@ static void assign_reference_from_json(
           java_int_type(), "tmp_unknown_length");
       info.block.add(code_assignt(
         *reference.array_length, side_effect_expr_nondett(java_int_type(), info.loc)));
-      allocate_array(reference.expr, json, *reference.array_length, info);
+      allocate_array(reference.expr, *reference.array_length, info);
       info.references.insert({get_id(json), reference});
     }
     else
@@ -655,7 +662,7 @@ static void assign_reference_from_json(
     reference = id_it->second;
   if(has_id(json))
   {
-    if(has_prefix(id2string(types.java_class_type.get_tag()), "java::array["))
+    if(has_array_type(expr, info.symbol_table))
     {
       assign_array_from_json(
         reference.expr, json, reference.array_length, type_from_array, info);

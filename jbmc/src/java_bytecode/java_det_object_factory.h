@@ -17,7 +17,7 @@ struct det_creation_referencet
   exprt expr;
 
   /// If `symbol` is an array, this expression stores its length.
-  optionalt<exprt> array_length;
+  optionalt<symbol_exprt> array_length;
 };
 
 /// Given an expression \p expr representing a Java object or primitive and a
