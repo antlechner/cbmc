@@ -310,6 +310,13 @@ static void assign_null(const exprt &expr, code_blockt &block)
     code_assignt(expr, null_pointer_exprt(to_pointer_type(expr.type()))));
 }
 
+/// TODO remove after rebase
+dereference_exprt
+element_at_pointer_array_index(const exprt &pointer, const exprt &index)
+{
+  return dereference_exprt{plus_exprt{pointer, index}};
+}
+
 /// In the case of an assignment of an array given a JSON representation, this
 /// function assigns the data component of the array, which contains the array
 /// elements. \p expr is a pointer to the array containing the component.
@@ -343,11 +350,9 @@ static void assign_array_data_component_from_json(
     element_type_from_array_type(json, type_from_array);
   for(auto it = json_array.begin(); it < json_array.end(); it++, index++)
   {
-    const auto index_expr = from_integer(index, java_int_type());
-    const dereference_exprt element_at_index{
-      plus_exprt{array_init_data, index_expr, array_init_data.type()}};
-    assign_from_json_rec(
-      element_at_index, *it, inferred_element_type, info);
+    const dereference_exprt element_at_index = element_at_pointer_array_index(
+      array_init_data, from_integer(index, java_int_type()));
+    assign_from_json_rec(element_at_index, *it, inferred_element_type, info);
   }
 }
 
@@ -419,8 +424,7 @@ static void assign_array_from_json(
       length_expr, ID_le, number_of_elements}});
   }
 
-  assign_array_data_component_from_json(
-    expr, json, type_from_array, info);
+  assign_array_data_component_from_json(expr, json, type_from_array, info);
 }
 
 /// One of the cases in the recursive algorithm: TODO
@@ -557,18 +561,6 @@ static void assign_pointer_from_json(
   }
 }
 
-static pointer_typet pointer_to_subtype(
-  const pointer_typet &pointer,
-  const java_class_typet &replacement_class_type)
-{
-  if(can_cast_type<struct_tag_typet>(pointer.subtype()))
-  {
-    struct_tag_typet struct_tag_subtype(replacement_class_type.get_name());
-    return pointer_type(struct_tag_subtype);
-  }
-  return pointer_type(replacement_class_type);
-}
-
 /// One of the cases in the recursive algorithm: the case where \p expr is a
 /// pointer to a struct, and \p runtime_type is the runtime type of the
 /// corresponding Java object, which may be more specific than the type pointed
@@ -582,7 +574,7 @@ static void assign_pointer_with_given_type_from_json(
 {
   const auto &types = pointer_and_class_types(expr, info.symbol_table);
   pointer_typet replacement_pointer =
-    pointer_to_subtype(types.pointer, runtime_type);
+    pointer_to_replacement_type(types.pointer, runtime_type);
   if(!equal_java_types(types.pointer, replacement_pointer))
   {
     const auto &new_symbol =
@@ -622,7 +614,8 @@ static void assign_reference_from_json(
         info.allocate_objects.allocate_automatic_local_object(
           java_int_type(), "tmp_unknown_length");
       info.block.add(code_assignt(
-        *reference.array_length, side_effect_expr_nondett(java_int_type(), info.loc)));
+        *reference.array_length,
+        side_effect_expr_nondett(java_int_type(), info.loc)));
       allocate_array(reference.expr, *reference.array_length, info);
       info.references.insert({get_id(json), reference});
     }
@@ -630,9 +623,9 @@ static void assign_reference_from_json(
     {
       reference.expr = info.allocate_objects.allocate_dynamic_object_symbol(
         info.block, expr, types.pointer.subtype());
-//          exprt my_expr = info.allocate_objects.allocate_dynamic_object(
-//            info.block, expr, pointer.subtype());
-//          info.block.add(code_assignt{reference.symbol, address_of_exprt{my_expr}});
+      //          exprt my_expr = info.allocate_objects.allocate_dynamic_object(
+      //            info.block, expr, pointer.subtype());
+      //          info.block.add(code_assignt{reference.symbol, address_of_exprt{my_expr}});
       info.references.insert({get_id(json), reference});
     }
   }
