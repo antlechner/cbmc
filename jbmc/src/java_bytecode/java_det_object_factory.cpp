@@ -456,28 +456,6 @@ static void assign_enum_from_json(
     code_assignt(expr, typecast_exprt(arraycellref, expr.type())));
 }
 
-// TODO remove after rebasing
-static bool is_java_string_type(const struct_typet &struct_type)
-{
-  return struct_type.id() == ID_struct &&
-         java_string_library_preprocesst::implements_java_char_sequence(
-           struct_type) &&
-         struct_type.has_component("length") &&
-         struct_type.has_component("data");
-}
-
-// TODO remove after rebasing
-static symbol_exprt get_or_create_string_literal_symbol(
-  const irep_idt &string_value,
-  symbol_table_baset &symbol_table,
-  bool string_refinement_enabled)
-{
-  exprt literal{ID_java_string_literal};
-  literal.set(ID_value, string_value);
-  return get_or_create_string_literal_symbol(
-    literal, symbol_table, string_refinement_enabled);
-}
-
 /// One of the cases in the recursive algorithm: the case where \p expr
 /// represents a string.
 /// See \ref assign_from_json_rec.
