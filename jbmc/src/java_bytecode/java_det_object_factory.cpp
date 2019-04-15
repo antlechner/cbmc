@@ -74,6 +74,13 @@ has_array_type(const exprt &expr, const symbol_table_baset &symbol_table)
   return has_prefix(id2string(types.java_class_type.get_tag()), "java::array[");
 }
 
+static bool
+has_enum_type(const exprt &expr, const symbol_table_baset &symbol_table)
+{
+  const auto &types = pointer_and_class_types(expr, symbol_table);
+  return types.java_class_type.get_base("java::java.lang.Enum").has_value();
+}
+
 /// Returns true iff the argument has a "@type" key.
 /// A runtime type that is different from the objects compile-time type should
 /// be specified in `json` in this way.
@@ -120,6 +127,19 @@ static std::string get_id(const jsont &json)
   if(has_id(json))
     return json["@id"].value;
   return json["@ref"].value;
+}
+
+static std::string get_enum_id(
+  const exprt &expr,
+  const jsont &json,
+  symbol_table_baset &symbol_table)
+{
+  PRECONDITION(json.is_object());
+  const auto &json_object = static_cast<const json_objectt &>(json);
+  PRECONDITION(json_object.find("name") != json_object.end());
+  const auto &types = pointer_and_class_types(expr, symbol_table);
+  return id2string(types.java_class_type.get_tag()) + '.' +
+         (json["name"].value);
 }
 
 /// Returns true iff the argument has a "@nondetLength: true" entry.
@@ -547,7 +567,7 @@ static void assign_pointer_from_json(
 //  const auto &outer_class_type = to_java_class_type(ns.follow(outer.type));
 
   const auto &types = pointer_and_class_types(expr, info.symbol_table);
-  if(types.java_class_type.get_base("java::java.lang.Enum"))
+  if(has_enum_type(expr, info.symbol_table))
 //    &&!outer_class_type.get_base("java::java.lang.Enum"))
   {
     assign_enum_from_json(expr, json, types.java_class_type, info);
@@ -602,7 +622,10 @@ static void assign_reference_from_json(
   det_creation_infot &info)
 {
   const auto &types = pointer_and_class_types(expr, info.symbol_table);
-  const auto id_it = info.references.find(get_id(json));
+  const std::string &id = has_enum_type(expr, info.symbol_table)
+                            ? get_enum_id(expr, json, info.symbol_table)
+                            : get_id(json);
+  const auto id_it = info.references.find(id);
   det_creation_referencet reference;
   if(id_it == info.references.end())
   {
@@ -617,7 +640,7 @@ static void assign_reference_from_json(
         *reference.array_length,
         side_effect_expr_nondett(java_int_type(), info.loc)));
       allocate_array(reference.expr, *reference.array_length, info);
-      info.references.insert({get_id(json), reference});
+      info.references.insert({id, reference});
     }
     else
     {
@@ -626,12 +649,14 @@ static void assign_reference_from_json(
       //          exprt my_expr = info.allocate_objects.allocate_dynamic_object(
       //            info.block, expr, pointer.subtype());
       //          info.block.add(code_assignt{reference.symbol, address_of_exprt{my_expr}});
-      info.references.insert({get_id(json), reference});
+      info.references.insert({id, reference});
+      if(has_enum_type(expr, info.symbol_table))
+        assign_struct_from_json(dereference_exprt(reference.expr), json, info);
     }
   }
   else
     reference = id_it->second;
-  if(has_id(json))
+  if(has_id(json) && !has_enum_type(expr, info.symbol_table))
   {
     if(has_array_type(expr, info.symbol_table))
     {
@@ -655,8 +680,12 @@ void assign_from_json_rec(
   {
     if(json.is_null())
       assign_null(expr, info.block);
-    else if(is_reference(json) || has_id(json))
+    else if(
+      is_reference(json) || has_id(json) ||
+      has_enum_type(expr, info.symbol_table))
+    {
       assign_reference_from_json(expr, json, type_from_array, info);
+    }
     else if(has_array_type(expr, info.symbol_table))
       assign_array_from_json(expr, json, {}, type_from_array, info);
     else if(
