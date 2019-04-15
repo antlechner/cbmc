@@ -61,6 +61,7 @@ code_blockt get_fast_clinit_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
+  size_t max_user_array_length,
   message_handlert &message_handler,
   std::unordered_map<std::string, det_creation_referencet> &references);
 
