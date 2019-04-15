@@ -1102,6 +1102,7 @@ bool java_bytecode_languaget::convert_single_method(
         function_id,
         symbol_table,
         needed_lazy_methods,
+        max_user_array_length,
         get_message_handler(),
         references);
       break;

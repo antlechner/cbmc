@@ -49,6 +49,14 @@ struct det_creation_infot
 
   /// Source location associated with the newly added codet.
   const source_locationt &loc;
+
+  /// Maximum value allowed for any (constant or variable length) arrays in user
+  /// code.
+  size_t max_user_array_length;
+
+  /// Hack used for enums.
+  /// See \ref assign_enum_from_json.
+  const java_class_typet &declaring_class_type;
 };
 
 struct pointer_and_class_typest
@@ -75,10 +83,42 @@ has_array_type(const exprt &expr, const symbol_table_baset &symbol_table)
 }
 
 static bool
+is_enum_type(const java_class_typet &class_type)
+{
+  return class_type.get_base("java::java.lang.Enum").has_value();
+}
+
+static bool
 has_enum_type(const exprt &expr, const symbol_table_baset &symbol_table)
 {
   const auto &types = pointer_and_class_types(expr, symbol_table);
-  return types.java_class_type.get_base("java::java.lang.Enum").has_value();
+  return is_enum_type(types.java_class_type);
+}
+
+/// This function is used as a workaround until reference-equal objects defined
+/// across several classes are tracked correctly. Once reference-equality works
+/// in all cases, this function can be removed.
+/// Until then, in the case of an enum expression that needs to be assigned a
+/// value, we distinguish between two cases:
+/// 1) the enum expression is declared in a class of its own type - in this
+///    case, initialize it just as a regular object that has known reference-
+///    equal objects. (Corresponds to creating the enum constant in Java.)
+/// 2) otherwise, initialize it by indexing the $VALUES array with the given
+///    ordinal. (Corresponds to retrieving the enum constant in Java.)
+/// \param expr: an expression representing a Java object.
+/// \param symbol_table: used for looking up the type of \p expr.
+/// \param declaring_class_type: type of the class where \p expr is declared.
+/// \return `true` if \p expr has an enum type and is declared within the
+///   definition of that same type, `false` otherwise.
+bool is_enum_definition(
+  const exprt &expr,
+  const symbol_table_baset &symbol_table,
+  const java_class_typet &declaring_class_type)
+{
+  PRECONDITION(can_cast_type<pointer_typet>(expr.type()));
+  const auto &types = pointer_and_class_types(expr, symbol_table);
+  return types.java_class_type == declaring_class_type &&
+         is_enum_type(declaring_class_type);
 }
 
 /// Returns true iff the argument has a "@type" key.
@@ -332,7 +372,7 @@ static void assign_null(const exprt &expr, code_blockt &block)
 
 /// TODO remove after rebase
 dereference_exprt
-element_at_pointer_array_index(const exprt &pointer, const exprt &index)
+array_element_from_pointer(const exprt &pointer, const exprt &index)
 {
   return dereference_exprt{plus_exprt{pointer, index}};
 }
@@ -370,7 +410,7 @@ static void assign_array_data_component_from_json(
     element_type_from_array_type(json, type_from_array);
   for(auto it = json_array.begin(); it < json_array.end(); it++, index++)
   {
-    const dereference_exprt element_at_index = element_at_pointer_array_index(
+    const dereference_exprt element_at_index = array_element_from_pointer(
       array_init_data, from_integer(index, java_int_type()));
     assign_from_json_rec(element_at_index, *it, inferred_element_type, info);
   }
@@ -416,7 +456,7 @@ static void assign_array_from_json(
   const optionalt<std::string> &type_from_array,
   det_creation_infot &info)
 {
-  PRECONDITION(expr.type().id() == ID_pointer);
+  PRECONDITION(can_cast_type<pointer_typet>(expr.type()));
   PRECONDITION(has_array_type(expr, info.symbol_table));
   const jsont untyped_json = get_untyped_array(json);
   PRECONDITION(untyped_json.is_array());
@@ -438,7 +478,12 @@ static void assign_array_from_json(
     from_integer(json_array.size(), java_int_type());
   info.block.add(code_assumet{binary_predicate_exprt{
     length_expr, ID_ge, number_of_elements}});
-  if(!has_nondet_length(json))
+  if(has_nondet_length(json))
+  {
+    info.block.add(code_assumet{binary_predicate_exprt{
+      length_expr, ID_le, from_integer(info.max_user_array_length, java_int_type())}});
+  }
+  else
   {
     info.block.add(code_assumet{binary_predicate_exprt{
       length_expr, ID_le, number_of_elements}});
@@ -447,14 +492,17 @@ static void assign_array_from_json(
   assign_array_data_component_from_json(expr, json, type_from_array, info);
 }
 
-/// One of the cases in the recursive algorithm: TODO
+/// One of the cases in the recursive algorithm: the case where the expression
+/// to be assigned a value is an enum constant that is referenced outside of the
+/// definition of its type. (See \ref is_enum_definition for this temporary
+/// distinction.)
 static void assign_enum_from_json(
   const exprt &expr,
   const jsont &json,
   const java_class_typet &java_class_type,
   det_creation_infot &info)
 {
-  const std::string enum_name = id2string(java_class_type.get_name());
+  const std::string &enum_name = id2string(java_class_type.get_name());
   if(const auto func = info.symbol_table.lookup(clinit_wrapper_name(enum_name)))
     info.block.add(code_function_callt{func->symbol_expr()});
   const namespacet ns{info.symbol_table};
@@ -474,10 +522,10 @@ static void assign_enum_from_json(
   const exprt ordinal_expr =
     from_integer(std::stoi(json["ordinal"].value), java_int_type());
 
-  plus_exprt plus(enum_array_expr, ordinal_expr);
-  const dereference_exprt arraycellref(plus);
-  info.block.add(
-    code_assignt(expr, typecast_exprt(arraycellref, expr.type())));
+  info.block.add(code_assignt(
+    expr,
+    typecast_exprt(
+      array_element_from_pointer(enum_array_expr, ordinal_expr), expr.type())));
 }
 
 /// One of the cases in the recursive algorithm: the case where \p expr
@@ -562,16 +610,11 @@ static void assign_pointer_from_json(
   const jsont &json,
   det_creation_infot &info)
 {
-//  const namespacet ns {info.symbol_table};
-//  const symbolt &outer = ns.lookup(info.class_name);
-//  const auto &outer_class_type = to_java_class_type(ns.follow(outer.type));
-
   const auto &types = pointer_and_class_types(expr, info.symbol_table);
+  // This check can be removed when tracking reference-equal objects across
+  // different classes has been implemented.
   if(has_enum_type(expr, info.symbol_table))
-//    &&!outer_class_type.get_base("java::java.lang.Enum"))
-  {
     assign_enum_from_json(expr, json, types.java_class_type, info);
-  }
   else
   {
     exprt dereferenced_symbol_expr =
@@ -614,6 +657,10 @@ static void assign_pointer_with_given_type_from_json(
 /// One of the cases in the recursive algorithm: the case where \p expr
 /// corresponds to a Java object that is reference-equal to one or more other
 /// Java objects represented in the initial JSON file.
+/// Such an object will either have the key-value pair `@id: some_key` in
+/// \p json, together with a full representation of the object, or it will only
+/// have one key-value pair, `@ref: some_key`. For each key, there is only one
+/// `@id` field in the JSON representation.
 /// See \ref assign_from_json_rec.
 static void assign_reference_from_json(
   const exprt &expr,
@@ -646,9 +693,6 @@ static void assign_reference_from_json(
     {
       reference.expr = info.allocate_objects.allocate_dynamic_object_symbol(
         info.block, expr, types.pointer.subtype());
-      //          exprt my_expr = info.allocate_objects.allocate_dynamic_object(
-      //            info.block, expr, pointer.subtype());
-      //          info.block.add(code_assignt{reference.symbol, address_of_exprt{my_expr}});
       info.references.insert({id, reference});
       if(has_enum_type(expr, info.symbol_table))
         assign_struct_from_json(dereference_exprt(reference.expr), json, info);
@@ -676,13 +720,16 @@ void assign_from_json_rec(
   const optionalt<std::string> &type_from_array,
   det_creation_infot &info)
 {
-  if(expr.type().id() == ID_pointer)
+  if(can_cast_type<pointer_typet>(expr.type()))
   {
     if(json.is_null())
       assign_null(expr, info.block);
     else if(
       is_reference(json) || has_id(json) ||
-      has_enum_type(expr, info.symbol_table))
+      is_enum_definition(expr, info.symbol_table, info.declaring_class_type))
+      // The last condition can be replaced with
+      // has_enum_type(expr, info.symbol_table) once tracking reference-equality
+      // across different classes has been implemented.
     {
       assign_reference_from_json(expr, json, type_from_array, info);
     }
@@ -708,6 +755,7 @@ void assign_from_json(
   code_blockt &assignments,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
+  size_t max_user_array_length,
   std::unordered_map<std::string, det_creation_referencet> &references,
   const source_locationt &loc)
 {
@@ -717,8 +765,16 @@ void assign_from_json(
     id2string(class_name) + "::fast_clinit",
     symbol_table);
   code_blockt body_rec;
-  det_creation_infot info{
-    body_rec, allocate, symbol_table, needed_lazy_methods, references, loc};
+  const auto &class_type =
+    to_java_class_type(symbol_table.lookup_ref(class_name).type);
+  det_creation_infot info{body_rec,
+                          allocate,
+                          symbol_table,
+                          needed_lazy_methods,
+                          references,
+                          loc,
+                          max_user_array_length,
+                          class_type};
   assign_from_json_rec(expr, json, {}, info);
   allocate.declare_created_symbols(assignments);
   assignments.append(body_rec);
