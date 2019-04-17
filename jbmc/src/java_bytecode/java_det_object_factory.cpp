@@ -1,15 +1,10 @@
 #include "java_det_object_factory.h"
 
 #include <util/expr_initializer.h>
-#include <util/nondet.h>
-#include <util/nondet_bool.h>
-#include <util/pointer_offset_size.h>
 #include <util/prefix.h>
 #include <util/unicode.h>
 
 #include <goto-programs/class_identifier.h>
-#include <goto-programs/goto_functions.h>
-#include <util/arith_tools.h>
 #include <util/ieee_float.h>
 
 #include "generic_parameter_specialization_map_keys.h"
@@ -42,9 +37,8 @@ struct det_creation_infot
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods;
 
   /// Map to keep track of reference-equal objects. Each entry has an ID (such
-  /// that any two reference-equal objects have the same ID) and a struct that
-  /// stores values related to the object in memory that all these references
-  /// point to.
+  /// that any two reference-equal objects have the same ID) and the expression
+  /// for the symbol that all these references point to.
   std::unordered_map<std::string, det_creation_referencet> &references;
 
   /// Source location associated with the newly added codet.
@@ -54,7 +48,7 @@ struct det_creation_infot
   /// code.
   size_t max_user_array_length;
 
-  /// Hack used for enums.
+  /// Used for the workaround for enums only.
   /// See \ref assign_enum_from_json.
   const java_class_typet &declaring_class_type;
 };
@@ -495,14 +489,16 @@ static void assign_array_from_json(
 /// One of the cases in the recursive algorithm: the case where the expression
 /// to be assigned a value is an enum constant that is referenced outside of the
 /// definition of its type. (See \ref is_enum_definition for this temporary
-/// distinction.)
+/// distinction. See \ref assign_from_json for details about the recursion.)
+/// Once reference-equality of fields in different classes is supported, this
+/// function can be removed.
 static void assign_enum_from_json(
   const exprt &expr,
   const jsont &json,
-  const java_class_typet &java_class_type,
   det_creation_infot &info)
 {
-  const std::string &enum_name = id2string(java_class_type.get_name());
+  const auto &types = pointer_and_class_types(expr, info.symbol_table);
+  const std::string &enum_name = id2string(types.java_class_type.get_name());
   if(const auto func = info.symbol_table.lookup(clinit_wrapper_name(enum_name)))
     info.block.add(code_function_callt{func->symbol_expr()});
   const namespacet ns{info.symbol_table};
@@ -610,16 +606,15 @@ static void assign_pointer_from_json(
   const jsont &json,
   det_creation_infot &info)
 {
-  const auto &types = pointer_and_class_types(expr, info.symbol_table);
   // This check can be removed when tracking reference-equal objects across
   // different classes has been implemented.
   if(has_enum_type(expr, info.symbol_table))
-    assign_enum_from_json(expr, json, types.java_class_type, info);
+    assign_enum_from_json(expr, json, info);
   else
   {
     exprt dereferenced_symbol_expr =
       info.allocate_objects.allocate_dynamic_object(
-        info.block, expr, types.pointer.subtype());
+        info.block, expr, to_pointer_type(expr.type()).subtype());
     assign_struct_from_json(dereferenced_symbol_expr, json, info);
   }
 }
@@ -654,35 +649,38 @@ static void assign_pointer_with_given_type_from_json(
     assign_pointer_from_json(expr, json, info);
 }
 
-/// One of the cases in the recursive algorithm: the case where \p expr
-/// corresponds to a Java object that is reference-equal to one or more other
-/// Java objects represented in the initial JSON file.
-/// Such an object will either have the key-value pair `@id: some_key` in
-/// \p json, together with a full representation of the object, or it will only
-/// have one key-value pair, `@ref: some_key`. For each key, there is only one
-/// `@id` field in the JSON representation.
-/// See \ref assign_from_json_rec.
-static void assign_reference_from_json(
+/// Helper function for \ref assign_reference_from_json.
+/// Looks up the given \p id in the reference map and gets or creates the symbol
+/// for it.
+/// In the case of arrays, if the first time we see an ID is in a `@ref` object
+/// (rather than `@id`), we do not know what the length of the array will be, so
+/// we need to allocate an array of nondeterministic length. The length will
+/// be constrained (in \ref assign_array_from_json) once we find the
+/// corresponding `@id` object.
+/// \param expr: expression representing the Java object for which a symbol is
+///   retrieved or allocated.
+/// \param id: key in the reference map for this object
+/// \param info: references used throughout the recursive algorithm.
+/// \return a pair: the first element is true if a new symbol was allocated for
+///   the given ID and false if the ID was found in the reference map. The
+///   second element has the symbol expression(s) for this ID.
+static std::pair<bool, det_creation_referencet> get_or_create_reference(
   const exprt &expr,
-  const jsont &json,
-  const optionalt<std::string> &type_from_array,
+  const std::string &id,
   det_creation_infot &info)
 {
   const auto &types = pointer_and_class_types(expr, info.symbol_table);
-  const std::string &id = has_enum_type(expr, info.symbol_table)
-                            ? get_enum_id(expr, json, info.symbol_table)
-                            : get_id(json);
   const auto id_it = info.references.find(id);
-  det_creation_referencet reference;
   if(id_it == info.references.end())
   {
+    det_creation_referencet reference;
     if(has_array_type(expr, info.symbol_table))
     {
       reference.expr = info.allocate_objects.allocate_automatic_local_object(
-        types.pointer, "temp_prototype_ref");
+        types.pointer, "det_array_ref");
       reference.array_length =
         info.allocate_objects.allocate_automatic_local_object(
-          java_int_type(), "tmp_unknown_length");
+          java_int_type(), "det_array_length");
       info.block.add(code_assignt(
         *reference.array_length,
         side_effect_expr_nondett(java_int_type(), info.loc)));
@@ -694,13 +692,50 @@ static void assign_reference_from_json(
       reference.expr = info.allocate_objects.allocate_dynamic_object_symbol(
         info.block, expr, types.pointer.subtype());
       info.references.insert({id, reference});
-      if(has_enum_type(expr, info.symbol_table))
-        assign_struct_from_json(dereference_exprt(reference.expr), json, info);
     }
+    return {true, reference};
   }
-  else
-    reference = id_it->second;
-  if(has_id(json) && !has_enum_type(expr, info.symbol_table))
+  return {false, id_it->second};
+
+}
+
+/// One of the cases in the recursive algorithm: the case where \p expr
+/// corresponds to a Java object that is reference-equal to one or more other
+/// Java objects represented in the initial JSON file.
+/// See \ref assign_from_json_rec.
+/// Such an object will either have the key-value pair `@id: some_key` in
+/// \p json, together with a full representation of the object, or it will only
+/// have one key-value pair, `@ref: some_key`. For each key, there is only one
+/// `@id` field in the JSON file.
+/// A special case is enums, which are always represented as a full object
+/// without any `@id` or `@ref` keys. This is mostly the same as the output from
+/// json-io for enums, except that in our representation, we need to include the
+/// ordinal field so that e.g. switch statements on enums will work.
+/// We keep track of object IDs using a map from IDs to symbol expressions.
+/// Usually the ID is the `some_key` from the example above, except for enums,
+/// where the ID is of the form `my.package.name.EnumName.CONSTANT`.
+/// The first time we see an ID (`@id`, `@ref` or enum constant), we allocate a
+/// symbol for it. The first time we see the full representation of the object
+/// (`@id` or enum constant) we initialize the allocated memory. This strategy
+/// may need to be changed to support reference-equality of fields across
+/// several different classes (e.g.\ as soon as we find a `@ref` for the first
+/// time we might want to search the whole initial JSON file for the
+/// corresponding `@id`).
+static void assign_reference_from_json(
+  const exprt &expr,
+  const jsont &json,
+  const optionalt<std::string> &type_from_array,
+  det_creation_infot &info)
+{
+  const std::string &id = has_enum_type(expr, info.symbol_table)
+                            ? get_enum_id(expr, json, info.symbol_table)
+                            : get_id(json);
+  const auto bool_reference_pair = get_or_create_reference(expr, id, info);
+  const bool is_new_id = bool_reference_pair.first;
+  const det_creation_referencet &reference = bool_reference_pair.second;
+  if(is_new_id && has_enum_type(expr, info.symbol_table))
+    assign_struct_from_json(dereference_exprt(reference.expr), json, info);
+  else if(has_id(json))
   {
     if(has_array_type(expr, info.symbol_table))
     {
