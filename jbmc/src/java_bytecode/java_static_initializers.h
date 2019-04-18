@@ -32,7 +32,7 @@ public:
 };
 
 irep_idt clinit_wrapper_name(const irep_idt &class_name);
-irep_idt fast_clinit_name(const irep_idt &class_name);
+irep_idt json_clinit_name(const irep_idt &class_name);
 
 bool is_clinit_wrapper_function(const irep_idt &function_id);
 
@@ -57,7 +57,7 @@ code_ifthenelset get_clinit_wrapper_body(
   const select_pointer_typet &pointer_type_selector,
   message_handlert &message_handler);
 
-code_blockt get_fast_clinit_body(
+code_blockt get_json_clinit_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
