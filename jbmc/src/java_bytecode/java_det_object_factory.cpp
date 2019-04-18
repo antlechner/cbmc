@@ -206,7 +206,7 @@ static jsont get_untyped_array(const jsont &json)
 /// json-io. TODO add markdown file
 static jsont get_untyped_string(const jsont &json)
 {
-  return get_untyped(json, "@string");
+  return get_untyped(json, "value");
 }
 
 /// Given a JSON representation of a (non-array) reference-typed object and a
@@ -790,28 +790,33 @@ void assign_from_json_rec(
 void assign_from_json(
   const exprt &expr,
   const jsont &json,
-  const irep_idt &class_name,
+  const irep_idt &function_id,
   code_blockt &assignments,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
   size_t max_user_array_length,
-  std::unordered_map<std::string, det_creation_referencet> &references,
-  const source_locationt &loc)
+  std::unordered_map<std::string, det_creation_referencet> &references)
 {
+  source_locationt location{};
   allocate_objectst allocate(
     ID_java,
-    loc,
-    id2string(class_name) + "::json_clinit",
+    location,
+    function_id,
     symbol_table);
+  location.set_function(function_id);
   code_blockt body_rec;
+  const auto class_name = declaring_class(symbol_table.lookup_ref(function_id));
+  INVARIANT(
+    class_name,
+    "Function " + id2string(function_id) + " must be declared by a class.");
   const auto &class_type =
-    to_java_class_type(symbol_table.lookup_ref(class_name).type);
+    to_java_class_type(symbol_table.lookup_ref(*class_name).type);
   det_creation_infot info{body_rec,
                           allocate,
                           symbol_table,
                           needed_lazy_methods,
                           references,
-                          loc,
+                          location,
                           max_user_array_length,
                           class_type};
   assign_from_json_rec(expr, json, {}, info);
