@@ -312,6 +312,7 @@ static void create_function_symbol(
   const irep_idt &class_name,
   const irep_idt &function_name,
   const irep_idt &function_base_name,
+  const synthetic_method_typet &synthetic_method_type,
   symbol_tablet &symbol_table,
   synthetic_methods_mapt &synthetic_methods)
 {
@@ -328,8 +329,8 @@ static void create_function_symbol(
   bool failed = symbol_table.add(function_symbol);
   INVARIANT(!failed, id2string(function_base_name) + " symbol should be fresh");
 
-  auto insert_result = synthetic_methods.emplace(
-    function_symbol.name, synthetic_method_typet::STATIC_INITIALIZER_WRAPPER);
+  auto insert_result =
+    synthetic_methods.emplace(function_symbol.name, synthetic_method_type);
   INVARIANT(
     insert_result.second,
     "synthetic methods map should not already contain entry for " +
@@ -346,13 +347,13 @@ static void create_clinit_wrapper_function_symbol(
     class_name,
     clinit_wrapper_name(class_name),
     "clinit_wrapper",
+    synthetic_method_typet::STATIC_INITIALIZER_WRAPPER,
     symbol_table,
     synthetic_methods);
-  symbolt wrapper_method_symbol;
 }
 
 // Create symbol for the "json_clinit"
-static void create_fast_clinit_function_symbol(
+static void create_json_clinit_function_symbol(
   const irep_idt &class_name,
   symbol_tablet &symbol_table,
   synthetic_methods_mapt &synthetic_methods)
@@ -361,6 +362,7 @@ static void create_fast_clinit_function_symbol(
     class_name,
     json_clinit_name(class_name),
     "json_clinit",
+    synthetic_method_typet::JSON_STATIC_INITIALIZER,
     symbol_table,
     synthetic_methods);
 }
@@ -422,7 +424,7 @@ static void create_clinit_wrapper_symbols(
   create_clinit_wrapper_function_symbol(
     class_name, symbol_table, synthetic_methods);
 
-  create_fast_clinit_function_symbol(
+  create_json_clinit_function_symbol(
     class_name, symbol_table, synthetic_methods);
 }
 
