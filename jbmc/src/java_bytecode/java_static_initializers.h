@@ -57,6 +57,8 @@ code_ifthenelset get_clinit_wrapper_body(
   const select_pointer_typet &pointer_type_selector,
   message_handlert &message_handler);
 
+/// Creates the body of a json_clinit function, which includes assignments for
+/// all static fields of a class.
 code_blockt get_json_clinit_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
