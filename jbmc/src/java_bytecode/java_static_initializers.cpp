@@ -759,42 +759,43 @@ code_blockt get_json_clinit_body(
   message_handlert &message_handler,
   std::unordered_map<std::string, det_creation_referencet> &references)
 {
-  // find all static fields for class_name
   const auto class_name = declaring_class(symbol_table.lookup_ref(function_id));
+  INVARIANT(class_name, "json_clinit must be declared by a class.");
   const std::string filename = "clinit-state-file.json";
   jsont json;
   if(!parse_json(filename, message_handler, json) && json.is_object())
   {
     const auto &json_object = static_cast<const json_objectt &>(json);
-    if(json_object.find(id2string(*class_name).substr(6)) != json_object.end())
+    const auto class_entry =
+      json_object.find(id2string(strip_java_namespace_prefix(*class_name)));
+    if(class_entry != json_object.end())
     {
-      const auto &class_json = json_object[id2string(*class_name).substr(6)];
-      if(class_json.is_object())
+      const auto &class_json_value = class_entry->second;
+      if(class_json_value.is_object())
       {
         code_blockt body;
-        //        std::unordered_map<std::string, det_creation_referencet> references;
         std::for_each(
           symbol_table.symbols.begin(),
           symbol_table.symbols.end(),
-          [&](const std::pair<irep_idt, symbolt> &symbol) {
+          [&](const std::pair<irep_idt, symbolt> &symbol_pair) {
+            const symbolt &symbol = symbol_pair.second;
             if(
-              declaring_class(symbol.second) == class_name &&
-              symbol.second.is_static_lifetime)
+              declaring_class(symbol) == class_name &&
+              symbol.is_static_lifetime)
             {
-              const jsont &static_field_json =
-                class_json[id2string(symbol.second.base_name)];
               const symbol_exprt &static_field_expr =
-                symbol.second.symbol_expr();
+                symbol.symbol_expr();
+              const jsont &static_field_json =
+                class_json_value[id2string(symbol.base_name)];
               assign_from_json(
                 static_field_expr,
                 static_field_json,
-                *class_name,
+                function_id,
                 body,
                 symbol_table,
                 needed_lazy_methods,
                 max_user_array_length,
-                references,
-                source_locationt());
+                references);
             }
           });
         return body;

@@ -58,12 +58,11 @@ class ci_lazy_methods_neededt;
 void assign_from_json(
   const exprt &expr,
   const jsont &json,
-  const irep_idt &class_name,
+  const irep_idt &function_name,
   code_blockt &block,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
   size_t max_user_array_length,
-  std::unordered_map<std::string, det_creation_referencet> &references,
-  const source_locationt &loc);
+  std::unordered_map<std::string, det_creation_referencet> &references);
 
 #endif //CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
