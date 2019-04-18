@@ -11,13 +11,7 @@ Author: Diffblue Ltd.
 #ifndef CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
 #define CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
 
-#include "ci_lazy_methods_needed.h"
-#include "select_pointer_type.h"
-
-#include <util/allocate_objects.h>
-#include <util/message.h>
 #include <util/std_code.h>
-#include <util/symbol_table.h>
 
 /// Information to store when several references point to the same Java object.
 struct det_creation_referencet
@@ -29,6 +23,11 @@ struct det_creation_referencet
   /// If `symbol` is an array, this expression stores its length.
   optionalt<symbol_exprt> array_length;
 };
+
+class jsont;
+class symbol_table_baset;
+class ci_lazy_methods_neededt;
+class message_handlert;
 
 /// Given an expression \p expr representing a Java object or primitive and a
 /// JSON representation \p json of a Java object or primitive of a compatible

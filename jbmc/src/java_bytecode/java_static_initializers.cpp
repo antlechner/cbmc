@@ -56,7 +56,7 @@ static typet clinit_states_type()
 // Disable linter here to allow a std::string constant, since that holds
 // a length, whereas a cstr would require strlen every time.
 const std::string clinit_wrapper_suffix = "::clinit_wrapper"; // NOLINT(*)
-const std::string fast_clinit_suffix = "::fast_clinit"; // NOLINT(*)
+const std::string json_clinit_suffix = "::json_clinit"; // NOLINT(*)
 const std::string clinit_function_suffix = ".<clinit>:()V"; // NOLINT(*)
 
 /// Get the Java static initializer wrapper name for a given class (the wrapper
@@ -70,9 +70,9 @@ irep_idt clinit_wrapper_name(const irep_idt &class_name)
   return id2string(class_name) + clinit_wrapper_suffix;
 }
 
-irep_idt fast_clinit_name(const irep_idt &class_name)
+irep_idt json_clinit_name(const irep_idt &class_name)
 {
-  return id2string(class_name) + fast_clinit_suffix;
+  return id2string(class_name) + json_clinit_suffix;
 }
 
 /// Check if function_id is a clinit wrapper
@@ -227,8 +227,8 @@ static void clinit_wrapper_do_recursive_calls(
   }
 
   // Replacing clinit with new prototype
-  const irep_idt &fast_clinit = fast_clinit_name(class_name);
-  auto find_sym_it = symbol_table.symbols.find(fast_clinit);
+  const irep_idt &json_clinit = json_clinit_name(class_name);
+  auto find_sym_it = symbol_table.symbols.find(json_clinit);
   if(find_sym_it != symbol_table.symbols.end())
   {
     const code_function_callt call_fast_init(find_sym_it->second.symbol_expr());
@@ -384,25 +384,25 @@ static void create_clinit_wrapper_symbols(
     "synthetic methods map should not already contain entry for "
     "clinit wrapper");
 
-  // Create symbol for the "fast_clinit"
-  symbolt fast_clinit_method_symbol;
-  const java_method_typet fast_clinit_method_type({}, java_void_type());
-  fast_clinit_method_symbol.name = fast_clinit_name(class_name);
-  fast_clinit_method_symbol.pretty_name = fast_clinit_method_symbol.name;
-  fast_clinit_method_symbol.base_name = "fast_clinit";
-  fast_clinit_method_symbol.type = fast_clinit_method_type;
-  fast_clinit_method_symbol.type.set(ID_C_class, class_name);
-  fast_clinit_method_symbol.mode = ID_java;
-  bool fast_failed = symbol_table.add(fast_clinit_method_symbol);
-  INVARIANT(!fast_failed, "fast_clinit symbol should be fresh");
+  // Create symbol for the "json_clinit"
+  symbolt json_clinit_method_symbol;
+  const java_method_typet json_clinit_method_type{{}, java_void_type()};
+  json_clinit_method_symbol.name = json_clinit_name(class_name);
+  json_clinit_method_symbol.pretty_name = json_clinit_method_symbol.name;
+  json_clinit_method_symbol.base_name = "json_clinit";
+  json_clinit_method_symbol.type = json_clinit_method_type;
+  json_clinit_method_symbol.type.set(ID_C_class, class_name);
+  json_clinit_method_symbol.mode = ID_java;
+  bool json_clinit_failed = symbol_table.add(json_clinit_method_symbol);
+  INVARIANT(!json_clinit_failed, "json_clinit symbol should be fresh");
 
-  auto fast_clinit_insert_result = synthetic_methods.emplace(
-    fast_clinit_method_symbol.name,
-    synthetic_method_typet::FAST_STATIC_INITIALIZER);
+  auto json_clinit_insert_result = synthetic_methods.emplace(
+    json_clinit_method_symbol.name,
+    synthetic_method_typet::JSON_STATIC_INITIALIZER);
   INVARIANT(
-    fast_clinit_insert_result.second,
+    json_clinit_insert_result.second,
     "synthetic methods map should not already contain entry for "
-    "fast_clinit");
+    "json_clinit");
 }
 
 /// Thread safe version of the static initializer.
@@ -728,7 +728,7 @@ code_ifthenelset get_clinit_wrapper_body(
   return code_ifthenelset(std::move(check_already_run), std::move(init_body));
 }
 
-code_blockt get_fast_clinit_body(
+code_blockt get_json_clinit_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
@@ -737,36 +737,35 @@ code_blockt get_fast_clinit_body(
   std::unordered_map<std::string, det_creation_referencet> &references)
 {
   // find all static fields for class_name
-  const irep_idt &class_name = symbol_table.lookup_ref(function_id).type.get(ID_C_class);
-//  const std::string filename = "clinit-state/" + id2string(class_name).substr(6) + ".json";
+  const auto class_name = declaring_class(symbol_table.lookup_ref(function_id));
   const std::string filename = "clinit-state-file.json";
   jsont json;
-//  if(parse_json(filename, message_handler, json) || class_name == "java::com.diffblue.prototype.Colour")
   if(!parse_json(filename, message_handler, json) && json.is_object())
   {
     const auto &json_object = static_cast<const json_objectt &>(json);
-    if(json_object.find(id2string(class_name).substr(6)) != json_object.end())
+    if(json_object.find(id2string(*class_name).substr(6)) != json_object.end())
     {
-      const auto &class_json = json_object[id2string(class_name).substr(6)];
+      const auto &class_json = json_object[id2string(*class_name).substr(6)];
       if(class_json.is_object())
       {
         code_blockt body;
-//        std::unordered_map<std::string, det_creation_referencet> references;
+        //        std::unordered_map<std::string, det_creation_referencet> references;
         std::for_each(
           symbol_table.symbols.begin(),
           symbol_table.symbols.end(),
-          [&](const std::pair<irep_idt, symbolt> &symbol)
-          {
+          [&](const std::pair<irep_idt, symbolt> &symbol) {
             if(
-              symbol.second.type.get(ID_C_class)==class_name &&
+              declaring_class(symbol.second) == class_name &&
               symbol.second.is_static_lifetime)
             {
-              const jsont &static_field_json = class_json[id2string(symbol.second.base_name)];
-              const symbol_exprt &static_field_expr=symbol.second.symbol_expr();
+              const jsont &static_field_json =
+                class_json[id2string(symbol.second.base_name)];
+              const symbol_exprt &static_field_expr =
+                symbol.second.symbol_expr();
               assign_from_json(
                 static_field_expr,
                 static_field_json,
-                class_name,
+                *class_name,
                 body,
                 symbol_table,
                 needed_lazy_methods,
@@ -779,14 +778,10 @@ code_blockt get_fast_clinit_body(
       }
     }
   }
-  const irep_idt &real_clinit_name = clinit_function_name(class_name);
+  const irep_idt &real_clinit_name = clinit_function_name(*class_name);
   if(const auto clinit_func = symbol_table.lookup(real_clinit_name))
     return code_blockt{{code_function_callt{clinit_func->symbol_expr()}}};
   return code_blockt{};
-//  if(!json.is_object())
-//  {
-//    throw static_field_list_errort("Invalid JSON structure");
-//  }
 }
 
 /// Create static initializer wrappers for all classes that need them.

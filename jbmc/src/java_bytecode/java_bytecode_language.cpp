@@ -1097,8 +1097,8 @@ bool java_bytecode_languaget::convert_single_method(
           get_pointer_type_selector(),
           get_message_handler());
       break;
-    case synthetic_method_typet::FAST_STATIC_INITIALIZER:
-      writable_symbol.value = get_fast_clinit_body(
+    case synthetic_method_typet::JSON_STATIC_INITIALIZER:
+      writable_symbol.value = get_json_clinit_body(
         function_id,
         symbol_table,
         needed_lazy_methods,
