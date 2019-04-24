@@ -459,6 +459,8 @@ static void assign_array_from_json(
       java_int_type(), "det_array_length");
     info.block.add(code_assignt{
       length_expr, side_effect_expr_nondett{java_int_type(), info.loc}});
+    info.block.add(code_assumet{binary_predicate_exprt{
+      length_expr, ID_ge, from_integer(0, java_int_type())}});
     allocate_array(expr, length_expr, info);
   }
   const auto number_of_elements =
@@ -688,6 +690,8 @@ static std::pair<bool, det_creation_referencet> get_or_create_reference(
       info.block.add(code_assignt(
         *reference.array_length,
         side_effect_expr_nondett(java_int_type(), info.loc)));
+      info.block.add(code_assumet{binary_predicate_exprt{
+        *reference.array_length, ID_ge, from_integer(0, java_int_type())}});
       allocate_array(reference.expr, *reference.array_length, info);
       info.references.insert({id, reference});
     }
