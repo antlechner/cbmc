@@ -40,7 +40,8 @@ Author: Daniel Kroening, kroening@kroening.com
   "(no-lazy-methods)" \
   "(lazy-methods-extra-entry-point):" \
   "(java-load-class):" \
-  "(java-no-load-class):"
+  "(java-no-load-class):" \
+  "(static-values):"
 
 #define JAVA_BYTECODE_LANGUAGE_OPTIONS_HELP /*NOLINT*/ \
   " --disable-uncaught-exception-check\n" \
@@ -198,6 +199,7 @@ protected:
   java_string_library_preprocesst string_preprocess;
   std::string java_cp_include_files;
   bool nondet_static;
+  std::string static_values_file;
 
   // list of classes to force load even without reference from the entry point
   std::vector<irep_idt> java_load_classes;

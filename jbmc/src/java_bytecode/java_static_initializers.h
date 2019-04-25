@@ -39,12 +39,14 @@ bool is_clinit_wrapper_function(const irep_idt &function_id);
 void create_static_initializer_wrappers(
   symbol_tablet &symbol_table,
   synthetic_methods_mapt &synthetic_methods,
-  const bool thread_safe);
+  const bool thread_safe,
+  const std::string &static_values_file);
 
 code_blockt get_thread_safe_clinit_wrapper_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   const bool nondet_static,
+  const std::string &static_values_file,
   const java_object_factory_parameterst &object_factory_parameters,
   const select_pointer_typet &pointer_type_selector,
   message_handlert &message_handler);
@@ -53,6 +55,7 @@ code_ifthenelset get_clinit_wrapper_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   const bool nondet_static,
+  const std::string &static_values_file,
   const java_object_factory_parameterst &object_factory_parameters,
   const select_pointer_typet &pointer_type_selector,
   message_handlert &message_handler);
@@ -61,6 +64,7 @@ code_ifthenelset get_clinit_wrapper_body(
 /// all static fields of a class.
 code_blockt get_json_clinit_body(
   const irep_idt &function_id,
+  const std::string &static_values_file,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   size_t max_user_array_length,

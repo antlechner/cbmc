@@ -87,6 +87,10 @@ void parse_java_language_options(const cmdlinet &cmd, optionst &options)
     options.set_option(
       "java-cp-include-files", cmd.get_value("java-cp-include-files"));
   }
+  if(cmd.isset("static-values"))
+  {
+    options.set_option("static-values", cmd.get_value("static-values"));
+  }
 }
 
 /// Consume options that are java bytecode specific.
@@ -177,6 +181,7 @@ void java_bytecode_languaget::set_language_options(const optionst &options)
     java_cp_include_files=".*";
 
   nondet_static = options.get_bool_option("nondet-static");
+  static_values_file = options.get_option("static-values");
 
   language_options_initialized=true;
 }
@@ -787,7 +792,7 @@ bool java_bytecode_languaget::typecheck(
   // function named package.classname::clinit_wrapper, and a corresponding
   // global tracking whether it has run or not:
   create_static_initializer_wrappers(
-    symbol_table, synthetic_methods, threading_support);
+    symbol_table, synthetic_methods, threading_support, static_values_file);
 
   // Now incrementally elaborate methods
   // that are reachable from this entry point.
@@ -1085,6 +1090,7 @@ bool java_bytecode_languaget::convert_single_method(
           function_id,
           symbol_table,
           nondet_static,
+          static_values_file,
           object_factory_parameters,
           get_pointer_type_selector(),
           get_message_handler());
@@ -1093,6 +1099,7 @@ bool java_bytecode_languaget::convert_single_method(
           function_id,
           symbol_table,
           nondet_static,
+          static_values_file,
           object_factory_parameters,
           get_pointer_type_selector(),
           get_message_handler());
@@ -1100,6 +1107,7 @@ bool java_bytecode_languaget::convert_single_method(
     case synthetic_method_typet::JSON_STATIC_INITIALIZER:
       writable_symbol.value = get_json_clinit_body(
         function_id,
+        static_values_file,
         symbol_table,
         needed_lazy_methods,
         max_user_array_length,

@@ -213,6 +213,7 @@ static void clinit_wrapper_do_recursive_calls(
   const irep_idt &class_name,
   code_blockt &init_body,
   const bool nondet_static,
+  const std::string &static_values_file,
   const java_object_factory_parameterst &object_factory_parameters,
   const select_pointer_typet &pointer_type_selector,
   message_handlert &message_handler)
@@ -226,13 +227,14 @@ static void clinit_wrapper_do_recursive_calls(
       init_body.add(code_function_callt{base_init_func->symbol_expr()});
   }
 
-  // Replacing clinit with new prototype
-  const irep_idt &json_clinit = json_clinit_name(class_name);
-  auto find_sym_it = symbol_table.symbols.find(json_clinit);
+  const irep_idt &clinit_name = static_values_file.empty()
+                                  ? clinit_function_name(class_name)
+                                  : json_clinit_name(class_name);
+  auto find_sym_it = symbol_table.symbols.find(clinit_name);
   if(find_sym_it != symbol_table.symbols.end())
   {
-    const code_function_callt call_fast_init(find_sym_it->second.symbol_expr());
-    init_body.add(call_fast_init);
+    const code_function_callt call_clinit(find_sym_it->second.symbol_expr());
+    init_body.add(call_clinit);
   }
 
   // If nondet-static option is given, add a standard nondet initialization for
@@ -423,9 +425,6 @@ static void create_clinit_wrapper_symbols(
 
   create_clinit_wrapper_function_symbol(
     class_name, symbol_table, synthetic_methods);
-
-  create_json_clinit_function_symbol(
-    class_name, symbol_table, synthetic_methods);
 }
 
 /// Thread safe version of the static initializer.
@@ -507,6 +506,7 @@ code_blockt get_thread_safe_clinit_wrapper_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   const bool nondet_static,
+  const std::string &static_values_file,
   const java_object_factory_parameterst &object_factory_parameters,
   const select_pointer_typet &pointer_type_selector,
   message_handlert &message_handler)
@@ -659,6 +659,7 @@ code_blockt get_thread_safe_clinit_wrapper_body(
       *class_name,
       init_body,
       nondet_static,
+      static_values_file,
       object_factory_parameters,
       pointer_type_selector,
       message_handler);
@@ -699,6 +700,7 @@ code_ifthenelset get_clinit_wrapper_body(
   const irep_idt &function_id,
   symbol_table_baset &symbol_table,
   const bool nondet_static,
+  const std::string &static_values_file,
   const java_object_factory_parameterst &object_factory_parameters,
   const select_pointer_typet &pointer_type_selector,
   message_handlert &message_handler)
@@ -743,6 +745,7 @@ code_ifthenelset get_clinit_wrapper_body(
     *class_name,
     init_body,
     nondet_static,
+    static_values_file,
     object_factory_parameters,
     pointer_type_selector,
     message_handler);
@@ -753,6 +756,7 @@ code_ifthenelset get_clinit_wrapper_body(
 
 code_blockt get_json_clinit_body(
   const irep_idt &function_id,
+  const std::string &static_values_file,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
   size_t max_user_array_length,
@@ -761,9 +765,10 @@ code_blockt get_json_clinit_body(
 {
   const auto class_name = declaring_class(symbol_table.lookup_ref(function_id));
   INVARIANT(class_name, "json_clinit must be declared by a class.");
-  const std::string filename = "clinit-state-file.json";
   jsont json;
-  if(!parse_json(filename, message_handler, json) && json.is_object())
+  if(
+    !static_values_file.empty() &&
+    !parse_json(static_values_file, message_handler, json) && json.is_object())
   {
     const auto &json_object = static_cast<const json_objectt &>(json);
     const auto class_entry =
@@ -818,7 +823,8 @@ code_blockt get_json_clinit_body(
 void create_static_initializer_wrappers(
   symbol_tablet &symbol_table,
   synthetic_methods_mapt &synthetic_methods,
-  const bool thread_safe)
+  const bool thread_safe,
+  const std::string &static_values_file)
 {
   // Top-sort the class hierarchy, such that we visit parents before children,
   // and can so identify parents that need static initialisation by whether we
@@ -835,6 +841,11 @@ void create_static_initializer_wrappers(
     {
       create_clinit_wrapper_symbols(
         class_identifier, symbol_table, synthetic_methods, thread_safe);
+      if(!static_values_file.empty())
+      {
+        create_json_clinit_function_symbol(
+          class_identifier, symbol_table, synthetic_methods);
+      }
     }
   }
 }
