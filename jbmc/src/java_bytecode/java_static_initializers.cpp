@@ -7,18 +7,18 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 \*******************************************************************/
 
 #include "java_static_initializers.h"
-#include "java_det_object_factory.h"
+#include "assignments_from_json.h"
 #include "java_object_factory.h"
 #include "java_utils.h"
 #include <goto-programs/class_hierarchy.h>
+#include <goto-programs/class_identifier.h>
 #include <json/json_parser.h>
-#include <util/std_types.h>
-#include <util/std_expr.h>
-#include <util/std_code.h>
-#include <util/suffix.h>
 #include <util/arith_tools.h>
 #include <util/expr_initializer.h>
-#include <goto-programs/class_identifier.h>
+#include <util/std_code.h>
+#include <util/std_expr.h>
+#include <util/std_types.h>
+#include <util/suffix.h>
 
 /// The three states in which a `<clinit>` method for a class can be before,
 /// after, and during static class initialization. These states are only used

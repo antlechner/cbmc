@@ -9,9 +9,9 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 #ifndef CPROVER_JAVA_BYTECODE_JAVA_STATIC_INITIALIZERS_H
 #define CPROVER_JAVA_BYTECODE_JAVA_STATIC_INITIALIZERS_H
 
-#include "java_det_object_factory.h"
-#include "java_object_factory_parameters.h"
+#include "assignments_from_json.h"
 #include "ci_lazy_methods_needed.h"
+#include "java_object_factory_parameters.h"
 #include "select_pointer_type.h"
 #include "synthetic_methods_map.h"
 

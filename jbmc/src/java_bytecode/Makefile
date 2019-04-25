@@ -1,4 +1,5 @@
-SRC = bytecode_info.cpp \
+SRC = assignments_from_json.cpp \
+      bytecode_info.cpp \
       character_refine_preprocess.cpp \
       ci_lazy_methods.cpp \
       ci_lazy_methods_needed.cpp \
@@ -26,7 +27,6 @@ SRC = bytecode_info.cpp \
       java_enum_static_init_unwind_handler.cpp \
       java_entry_point.cpp \
       java_local_variable_table.cpp \
-      java_det_object_factory.cpp \
       java_object_factory.cpp \
       java_object_factory_parameters.cpp \
       java_pointer_casts.cpp \
