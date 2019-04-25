@@ -12,31 +12,18 @@ public enum Color {
     this.grayscale = grayscale;
   }
 
-  // #CORE
   public boolean isGrayscale() {
     return grayscale;
   }
 
-  // #CORE
-  public static Color testStaticInitOfEnum(Color c) {
-    if (c.isGrayscale()) {
-      return c;
-    }
-    return c;
-  }
-
-  // enums
   public static Color enumField = Color.WHITE;
-  // #CORE
-  public static Color testEnum() {
-    return enumField;
+  public static void testEnumInOwnTypePass() {
+    assert enumField == Color.WHITE && enumField.name().equals("WHITE") &&
+        enumField.ordinal() == 3 && enumField.isGrayscale();
   }
-
-  // #CORE
-  public static int testEnumNondet(Color c) {
-    if (c == null) return 0;
-    if (c == enumField) return 1;
-    return 2;
+  public static void testEnumInOwnTypeFail() {
+    assert enumField != Color.WHITE || !enumField.name().equals("WHITE") ||
+        enumField.ordinal() != 3 || !enumField.isGrayscale();
   }
 
 }

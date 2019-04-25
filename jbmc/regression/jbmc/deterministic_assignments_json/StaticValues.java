@@ -1,8 +1,3 @@
-/**
- * This class contains most of the tests for the --static-values feature (reading initial values of
- * static fields from a JSON file). Some more tests are included in Color.java; all other classes
- * are used to create instances of various kinds of objects to use in the tests.
- */
 public class StaticValues extends StaticParent {
 
   // primitive types
@@ -119,22 +114,20 @@ public class StaticValues extends StaticParent {
   // reference-equal reference types
   public static Foo referenceToOther = foo;
   public static void testReferenceToOtherPass() {
-    assert intField - referenceToOther.get() == 593;
-    assert referenceToOther == foo;
+    assert intField - referenceToOther.get() == 593 && referenceToOther == foo;
   }
-  public static void testReferenceToOtherFail1() {
-    assert intField - referenceToOther.get() != 593;
-  }
-  public static void testReferenceToOtherFail2() {
-    assert referenceToOther != foo;
+  public static void testReferenceToOtherFail() {
+    assert intField - referenceToOther.get() != 593 || referenceToOther != foo;
   }
 
   // reference-equal reference types in different classes
   public static Foo referenceToOtherClass = OtherClass.otherField;
-  public static void testReferenceToOtherClassValuePass() {
+  // #KNOWNBUG
+  public static void testReferenceToOtherClassPass() {
     assert referenceToOtherClass.get() == 46 && referenceToOtherClass == OtherClass.otherField;
   }
-  public static void testReferenceToOtherClassValueFail() {
+  // #KNOWNBUG
+  public static void testReferenceToOtherClassFail() {
     assert referenceToOtherClass.get() != 46 || referenceToOtherClass != OtherClass.otherField;
   }
 
