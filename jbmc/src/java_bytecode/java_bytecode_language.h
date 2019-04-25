@@ -220,6 +220,9 @@ private:
 
   std::vector<load_extra_methodst> extra_methods;
 
+  /// Shared map to be used in all calls to \ref assign_from_json.
+  /// It tracks objects that have been specified as reference-equal in the JSON
+  /// file by mapping IDs of such objects to symbols that store their values.
   std::unordered_map<std::string, det_creation_referencet> references;
 };
 

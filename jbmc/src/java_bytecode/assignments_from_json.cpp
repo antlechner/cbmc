@@ -192,18 +192,22 @@ static jsont get_untyped(const jsont &json, const std::string &object_key)
   return json;
 }
 
+/// \ref get_untyped for primitive types.
 static jsont get_untyped_primitive(const jsont &json)
 {
   return get_untyped(json, "value");
 }
 
+/// \ref get_untyped for array types.
 static jsont get_untyped_array(const jsont &json)
 {
   return get_untyped(json, "@items");
 }
 
-/// Note that this differs from the standard serialization of strings in
-/// json-io. TODO add markdown file
+/// \ref get_untyped for string types.
+/// Note that this differs from the standard serialization of java.lang.String
+/// in json-io, but is consistent with the serialization of StringBuilder and
+/// StringBuffer.
 static jsont get_untyped_string(const jsont &json)
 {
   return get_untyped(json, "value");

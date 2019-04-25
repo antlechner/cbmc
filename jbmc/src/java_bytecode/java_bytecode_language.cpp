@@ -788,10 +788,7 @@ bool java_bytecode_languaget::typecheck(
       symbol_table, symbol_table_journal.get_inserted(), synthetic_methods);
   }
 
-  // For each class that will require a static initializer wrapper, create a
-  // function named package.classname::clinit_wrapper, and a corresponding
-  // global tracking whether it has run or not:
-  create_static_initializer_wrappers(
+  create_static_initializer_symbols(
     symbol_table, synthetic_methods, threading_support, static_values_file);
 
   // Now incrementally elaborate methods

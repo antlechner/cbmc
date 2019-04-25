@@ -813,14 +813,22 @@ code_blockt get_json_clinit_body(
   return code_blockt{};
 }
 
-/// Create static initializer wrappers for all classes that need them.
+/// Create static initializer wrappers and possibly assignments from a JSON file
+/// for all classes that need them.
+/// For each class that will require a static initializer wrapper, create a
+/// function named package.classname::clinit_wrapper, and a corresponding
+/// global tracking whether it has run or not. If a JSON file containing static
+/// values is given, also create a function named
+/// package.classname::json_clinit.
 /// \param symbol_table: global symbol table
 /// \param synthetic_methods: synthetic methods map. Will be extended noting
 ///   that any wrapper belongs to this code, and so `get_clinit_wrapper_body`
 ///   should be used to produce the method body when required.
 /// \param thread_safe: if true state variables required to make the
 ///   clinit_wrapper thread safe will be created.
-void create_static_initializer_wrappers(
+/// \param static_values_file: name of a file containing JSON representations of
+///   static field values.
+void create_static_initializer_symbols(
   symbol_tablet &symbol_table,
   synthetic_methods_mapt &synthetic_methods,
   const bool thread_safe,
