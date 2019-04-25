@@ -1,4 +1,4 @@
-#include "java_det_object_factory.h"
+#include "assignments_from_json.h"
 
 #include "ci_lazy_methods_needed.h"
 #include "java_static_initializers.h"
@@ -14,7 +14,7 @@
 #include <util/unicode.h>
 
 /// Values passed around between most functions of the recursive deterministic
-/// assignment algorithm.
+/// assignment algorithm entered from \ref assign_from_json.
 /// The values in a given `det_creation_infot` are never reassigned, but the
 /// ones that are not marked `const` may be mutated.
 struct det_creation_infot

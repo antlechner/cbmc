@@ -8,8 +8,8 @@ Author: Diffblue Ltd.
 
 /// \file
 
-#ifndef CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
-#define CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
+#ifndef CPROVER_JAVA_BYTECODE_ASSIGNMENTS_FROM_JSON_H
+#define CPROVER_JAVA_BYTECODE_ASSIGNMENTS_FROM_JSON_H
 
 #include <util/std_code.h>
 
@@ -65,4 +65,4 @@ void assign_from_json(
   size_t max_user_array_length,
   std::unordered_map<std::string, det_creation_referencet> &references);
 
-#endif //CPROVER_JAVA_BYTECODE_JAVA_DET_OBJECT_FACTORY_H
+#endif //CPROVER_JAVA_BYTECODE_ASSIGNMENTS_FROM_JSON_H

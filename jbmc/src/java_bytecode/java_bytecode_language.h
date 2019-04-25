@@ -10,10 +10,10 @@ Author: Daniel Kroening, kroening@kroening.com
 #ifndef CPROVER_JAVA_BYTECODE_JAVA_BYTECODE_LANGUAGE_H
 #define CPROVER_JAVA_BYTECODE_JAVA_BYTECODE_LANGUAGE_H
 
+#include "assignments_from_json.h"
 #include "ci_lazy_methods.h"
 #include "ci_lazy_methods_needed.h"
 #include "java_class_loader.h"
-#include "java_det_object_factory.h"
 #include "java_object_factory_parameters.h"
 #include "java_static_initializers.h"
 #include "java_string_library_preprocess.h"
