@@ -36,7 +36,7 @@ irep_idt json_clinit_name(const irep_idt &class_name);
 
 bool is_clinit_wrapper_function(const irep_idt &function_id);
 
-void create_static_initializer_wrappers(
+void create_static_initializer_symbols(
   symbol_tablet &symbol_table,
   synthetic_methods_mapt &synthetic_methods,
   const bool thread_safe,
@@ -61,7 +61,9 @@ code_ifthenelset get_clinit_wrapper_body(
   message_handlert &message_handler);
 
 /// Creates the body of a json_clinit function, which includes assignments for
-/// all static fields of a class.
+/// all static fields of a class to values read from a JSON file. If the JSON
+/// file could not be parsed, the function will only include a call to the
+/// "real" clinit function, and not include any assignments itself.
 code_blockt get_json_clinit_body(
   const irep_idt &function_id,
   const std::string &static_values_file,
