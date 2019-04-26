@@ -8,6 +8,7 @@
 
 #include <goto-programs/class_identifier.h>
 #include <util/allocate_objects.h>
+#include <util/array_element_from_pointer.h>
 #include <util/expr_initializer.h>
 #include <util/message.h>
 #include <util/prefix.h>
@@ -359,13 +360,6 @@ static void assign_null(const exprt &expr, code_blockt &block)
 {
   block.add(
     code_assignt(expr, null_pointer_exprt(to_pointer_type(expr.type()))));
-}
-
-/// TODO remove after rebase
-dereference_exprt
-array_element_from_pointer(const exprt &pointer, const exprt &index)
-{
-  return dereference_exprt{plus_exprt{pointer, index}};
 }
 
 /// In the case of an assignment of an array given a JSON representation, this
