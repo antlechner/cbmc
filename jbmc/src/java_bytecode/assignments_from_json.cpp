@@ -1,5 +1,8 @@
 #include "assignments_from_json.h"
 
+#include <codecvt>
+#include <locale>
+
 #include "ci_lazy_methods_needed.h"
 #include "java_static_initializers.h"
 #include "java_string_library_preprocess.h"
@@ -200,9 +203,38 @@ static jsont get_untyped_primitive(const jsont &json)
 }
 
 /// \ref get_untyped for array types.
-static jsont get_untyped_array(const jsont &json)
+static json_arrayt get_untyped_array(const jsont &json, const typet &element_type)
 {
-  return get_untyped(json, "@items");
+  const jsont untyped = get_untyped(json, "@items");
+  PRECONDITION(untyped.is_array());
+  const auto &json_array = static_cast<const json_arrayt &>(untyped);
+  if(element_type == java_char_type())
+  {
+    PRECONDITION(json_array.size() == 1);
+    const auto &first = *json_array.begin();
+    PRECONDITION(first.is_string());
+    const auto &json_string = static_cast<const json_stringt &>(first);
+
+//    auto range = make_range(json_string.value.begin(), json_string.value.end());
+//    auto json_range = range.map([](const char &c) {
+//      const std::string debug(1, c);
+//      return json_stringt{debug};
+//    });
+
+    const auto wide_string = utf8_to_utf16_native_endian(json_string.value);
+    auto range = make_range(wide_string.begin(), wide_string.end());
+    auto json_range = range.map([](const wchar_t &c) {
+      const std::u16string u16(1, c);
+      const std::string debug =
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>{}
+          .to_bytes(u16);
+      return json_stringt{debug};
+    });
+
+    //    auto vector = std::vector<jsont>(json_range.begin(), json_range.end());
+    return json_arrayt{json_range.begin(), json_range.end()};
+  }
+  return json_array;
 }
 
 /// \ref get_untyped for string types.
@@ -342,14 +374,17 @@ static void assign_primitive_from_json(
     }
     else
     {
-      // Workaround for JSON parser bug: Unicode representation does not get
-      // parsed correctly, e.g. \u0001 appears as "0001" in json.value.
-      // So we assume here that json.value is just a sequence of four digits.
-      unsigned value;
-      std::stringstream stream;
-      stream << std::hex << json.value;
-      stream >> value;
-      init_body.add(code_assignt(expr, from_integer(value, expr.type())));
+      // json.value must be of the form \uABCD.
+      const std::wstring &debug = wide_value.substr(2);
+      int character = std::stoi(debug, nullptr, 16);
+      init_body.add(code_assignt{expr, from_integer(character, expr.type())});
+
+
+//      unsigned value;
+//      std::stringstream stream;
+//      stream << std::hex << json.value;
+//      stream >> value;
+//      init_body.add(code_assignt{expr, from_integer(value, expr.type())});
     }
   }
 }
@@ -371,11 +406,6 @@ static void assign_array_data_component_from_json(
   const optionalt<std::string> &type_from_array,
   det_creation_infot &info)
 {
-  const jsont untyped_json = get_untyped_array(json);
-  PRECONDITION(untyped_json.is_array());
-  const auto &json_array =
-    static_cast<const json_arrayt &>(untyped_json);
-
   const auto &java_class_type = followed_class_type(expr, info.symbol_table);
   const auto &components = java_class_type.components();
   const auto &element_type = static_cast<const typet &>(
@@ -383,6 +413,11 @@ static void assign_array_data_component_from_json(
   const exprt data_member_expr = typecast_exprt::conditional_cast(
     member_exprt{dereference_exprt{expr}, "data", components[2].type()},
     pointer_type(element_type));
+
+  const json_arrayt json_array = get_untyped_array(json, element_type);
+//  PRECONDITION(untyped_json.is_array());
+//  const auto &json_array =
+//    static_cast<const json_arrayt &>(untyped_json);
 
   const symbol_exprt &array_init_data =
     info.allocate_objects.allocate_automatic_local_object(
@@ -441,12 +476,15 @@ static void assign_array_from_json(
   const optionalt<std::string> &type_from_array,
   det_creation_infot &info)
 {
-  PRECONDITION(can_cast_type<pointer_typet>(expr.type()));
   PRECONDITION(has_array_type(expr, info.symbol_table));
-  const jsont untyped_json = get_untyped_array(json);
-  PRECONDITION(untyped_json.is_array());
-  const auto &json_array =
-    static_cast<const json_arrayt &>(untyped_json);
+  PRECONDITION(can_cast_type<pointer_typet>(expr.type()));
+  const auto &element_type = static_cast<const typet &>(
+    to_pointer_type(expr.type()).subtype().find(ID_element_type));
+
+  const json_arrayt json_array = get_untyped_array(json, element_type);
+//  PRECONDITION(untyped_json.is_array());
+//  const auto &json_array =
+//    static_cast<const json_arrayt &>(untyped_json);
 
   exprt length_expr;
   if(given_length_expr)
