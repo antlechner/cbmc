@@ -779,30 +779,32 @@ code_blockt get_json_clinit_body(
       if(class_json_value.is_object())
       {
         code_blockt body;
-        std::for_each(
-          symbol_table.symbols.begin(),
-          symbol_table.symbols.end(),
-          [&](const std::pair<irep_idt, symbolt> &symbol_pair) {
-            const symbolt &symbol = symbol_pair.second;
-            if(
-              declaring_class(symbol) == class_name &&
-              symbol.is_static_lifetime)
-            {
-              const symbol_exprt &static_field_expr =
-                symbol.symbol_expr();
-              const jsont &static_field_json =
-                class_json_value[id2string(symbol.base_name)];
-              assign_from_json(
-                static_field_expr,
-                static_field_json,
-                function_id,
-                body,
-                symbol_table,
-                needed_lazy_methods,
-                max_user_array_length,
-                references);
-            }
-          });
+        std::map<symbol_exprt, jsont> expression_values;
+        for(const auto &symbol_pair : symbol_table)
+        {
+          const symbolt &symbol = symbol_pair.second;
+          if(
+            declaring_class(symbol) == class_name &&
+            symbol.is_static_lifetime)
+          {
+            const symbol_exprt &static_field_expr = symbol.symbol_expr();
+            const jsont &static_field_json =
+              class_json_value[id2string(symbol.base_name)];
+            expression_values.insert({static_field_expr, static_field_json});
+          }
+        }
+        for(const auto &value_pair : expression_values)
+        {
+          assign_from_json(
+            value_pair.first,
+            value_pair.second,
+            function_id,
+            body,
+            symbol_table,
+            needed_lazy_methods,
+            max_user_array_length,
+            references);
+        }
         return body;
       }
     }
