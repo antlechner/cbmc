@@ -770,7 +770,7 @@ code_blockt get_json_clinit_body(
     !static_values_file.empty() &&
     !parse_json(static_values_file, message_handler, json) && json.is_object())
   {
-    const auto &json_object = static_cast<const json_objectt &>(json);
+    const auto &json_object = to_json_object(json);
     const auto class_entry =
       json_object.find(id2string(strip_java_namespace_prefix(*class_name)));
     if(class_entry != json_object.end())

@@ -121,7 +121,7 @@ static bool has_type(const jsont &json)
 {
   if(!json.is_object())
     return false;
-  const auto &json_object = static_cast<const json_objectt &>(json);
+  const auto &json_object = to_json_object(json);
   return json_object.find("@type") != json_object.end();
 }
 
@@ -135,7 +135,7 @@ static bool has_id(const jsont &json)
 {
   if(!json.is_object())
     return false;
-  const auto &json_object = static_cast<const json_objectt &>(json);
+  const auto &json_object = to_json_object(json);
   return json_object.find("@id") != json_object.end();
 }
 
@@ -147,7 +147,7 @@ static bool is_reference(const jsont &json)
 {
   if(!json.is_object())
     return false;
-  const auto &json_object = static_cast<const json_objectt &>(json);
+  const auto &json_object = to_json_object(json);
   return json_object.find("@ref") != json_object.end();
 }
 
@@ -167,7 +167,7 @@ static std::string get_enum_id(
   symbol_table_baset &symbol_table)
 {
   PRECONDITION(json.is_object());
-  const auto &json_object = static_cast<const json_objectt &>(json);
+  const auto &json_object = to_json_object(json);
   PRECONDITION(json_object.find("name") != json_object.end());
   return id2string(followed_class_type(expr, symbol_table).get_tag()) + '.' +
          (json["name"].value);
@@ -181,7 +181,7 @@ static bool has_nondet_length(const jsont &json)
 {
   if(!json.is_object())
     return false;
-  const auto &json_object = static_cast<const json_objectt &>(json);
+  const auto &json_object = to_json_object(json);
   if(json_object.find("@nondetLength") != json_object.end())
     return (json["@nondetLength"].is_true());
   return false;
@@ -211,13 +211,13 @@ get_untyped_array(const jsont &json, const typet &element_type)
 {
   const jsont untyped = get_untyped(json, "@items");
   PRECONDITION(untyped.is_array());
-  const auto &json_array = static_cast<const json_arrayt &>(untyped);
+  const auto &json_array = to_json_array(untyped);
   if(element_type == java_char_type())
   {
     PRECONDITION(json_array.size() == 1);
     const auto &first = *json_array.begin();
     PRECONDITION(first.is_string());
-    const auto &json_string = static_cast<const json_stringt &>(first);
+    const auto &json_string = to_json_string(first);
 
     const auto wide_string = utf8_to_utf16_native_endian(json_string.value);
     auto string_range = make_range(wide_string.begin(), wide_string.end());
@@ -330,42 +330,42 @@ void assign_from_json_rec(
 static void assign_primitive_from_json(
   const exprt &expr,
   const jsont &json,
-  code_blockt &init_body)
+  code_blockt &block)
 {
   if(json.is_null()) // field is not mentioned in json, leave as default value
     return;
   if(expr.type() == java_boolean_type())
   {
     if(json.is_true())
-      init_body.add(code_assignt(expr, true_exprt()));
+      block.add(code_assignt{expr, true_exprt{}});
     else
-      init_body.add(code_assignt(expr, false_exprt()));
+      block.add(code_assignt{expr, false_exprt{}});
   }
   else if(
     expr.type() == java_int_type() || expr.type() == java_byte_type() ||
     expr.type() == java_short_type() || expr.type() == java_long_type())
   {
-    init_body.add(
-      code_assignt(expr, from_integer(std::stoi(json.value), expr.type())));
+    block.add(code_assignt{
+      expr, from_integer(std::stoi(json.value), expr.type())});
   }
   else if(expr.type() == java_double_type())
   {
     ieee_floatt ieee_float(to_floatbv_type(expr.type()));
     ieee_float.from_double(std::stod(json.value));
-    init_body.add(code_assignt(expr, ieee_float.to_expr()));
+    block.add(code_assignt{expr, ieee_float.to_expr()});
   }
   else if(expr.type() == java_float_type())
   {
     ieee_floatt ieee_float(to_floatbv_type(expr.type()));
     ieee_float.from_float(std::stof(json.value));
-    init_body.add(code_assignt(expr, ieee_float.to_expr()));
+    block.add(code_assignt{expr, ieee_float.to_expr()});
   }
   else if(expr.type() == java_char_type())
   {
     const std::wstring wide_value = utf8_to_utf16_native_endian(json.value);
     PRECONDITION(wide_value.length() == 1);
-    init_body.add(
-      code_assignt(expr, from_integer(wide_value.front(), expr.type())));
+    block.add(
+      code_assignt{expr, from_integer(wide_value.front(), expr.type())});
   }
 }
 
@@ -374,7 +374,7 @@ static void assign_primitive_from_json(
 static void assign_null(const exprt &expr, code_blockt &block)
 {
   block.add(
-    code_assignt(expr, null_pointer_exprt(to_pointer_type(expr.type()))));
+    code_assignt{expr, null_pointer_exprt{to_pointer_type(expr.type())}});
 }
 
 /// In the case of an assignment of an array given a JSON representation, this
@@ -394,20 +394,16 @@ static void assign_array_data_component_from_json(
     member_exprt{dereference_exprt{expr}, "data", components[2].type()},
     pointer_type(element_type));
 
-  const json_arrayt json_array = get_untyped_array(json, element_type);
-//  PRECONDITION(untyped_json.is_array());
-//  const auto &json_array =
-//    static_cast<const json_arrayt &>(untyped_json);
-
   const symbol_exprt &array_init_data =
     info.allocate_objects.allocate_automatic_local_object(
       data_member_expr.type(), "det_array_data_init");
-  code_assignt data_assign{array_init_data, data_member_expr, info.loc};
+  const code_assignt data_assign{array_init_data, data_member_expr, info.loc};
   info.block.add(data_assign);
 
   size_t index = 0;
   const optionalt<std::string> inferred_element_type =
     element_type_from_array_type(json, type_from_array);
+  const json_arrayt json_array = get_untyped_array(json, element_type);
   for(auto it = json_array.begin(); it < json_array.end(); it++, index++)
   {
     const dereference_exprt element_at_index = array_element_from_pointer(
@@ -461,11 +457,6 @@ static void assign_array_from_json(
   const auto &element_type = static_cast<const typet &>(
     to_pointer_type(expr.type()).subtype().find(ID_element_type));
 
-  const json_arrayt json_array = get_untyped_array(json, element_type);
-//  PRECONDITION(untyped_json.is_array());
-//  const auto &json_array =
-//    static_cast<const json_arrayt &>(untyped_json);
-
   exprt length_expr;
   if(given_length_expr)
     length_expr = *given_length_expr;
@@ -479,6 +470,7 @@ static void assign_array_from_json(
       length_expr, ID_ge, from_integer(0, java_int_type())}});
     allocate_array(expr, length_expr, info);
   }
+  const json_arrayt json_array = get_untyped_array(json, element_type);
   const auto number_of_elements =
     from_integer(json_array.size(), java_int_type());
   info.block.add(code_assumet{binary_predicate_exprt{
@@ -493,7 +485,6 @@ static void assign_array_from_json(
     info.block.add(code_assumet{binary_predicate_exprt{
       length_expr, ID_le, number_of_elements}});
   }
-
   assign_array_data_component_from_json(expr, json, type_from_array, info);
 }
 
@@ -507,10 +498,10 @@ static void assign_string_from_json(
 {
   const auto json_string = get_untyped_string(json);
   PRECONDITION(json_string.is_string());
-  info.block.add(code_assignt(
+  info.block.add(code_assignt{
     expr,
     get_or_create_string_literal_symbol(
-      json_string.value, info.symbol_table, true)));
+      json_string.value, info.symbol_table, true)});
 }
 
 /// Helper function for \ref assign_struct_from_json which recursively assigns
@@ -565,7 +556,7 @@ static void assign_struct_from_json(
       to_struct_expr(*initial_object),
       ns,
       struct_tag_typet("java::" + id2string(java_class_type.get_tag())));
-    info.block.add(code_assignt(expr, *initial_object));
+    info.block.add(code_assignt{expr, *initial_object});
     assign_struct_components_from_json(expr, json, info);
   }
 }
@@ -617,10 +608,10 @@ static void assign_enum_from_json(
   const exprt ordinal_expr =
     from_integer(std::stoi(json["ordinal"].value), java_int_type());
 
-  info.block.add(code_assignt(
+  info.block.add(code_assignt{
     expr,
     typecast_exprt::conditional_cast(
-      array_element_from_pointer(values_data, ordinal_expr), expr.type())));
+      array_element_from_pointer(values_data, ordinal_expr), expr.type())});
 }
 
 /// One of the cases in the recursive algorithm: the case where \p expr is a
@@ -665,7 +656,7 @@ static void assign_pointer_with_given_type_from_json(
 
     assign_pointer_from_json(new_symbol, json, info);
     info.block.add(
-      code_assignt(expr, typecast_exprt(new_symbol, pointer_type)));
+      code_assignt{expr, typecast_exprt{new_symbol, pointer_type}});
   }
   else
     assign_pointer_from_json(expr, json, info);
@@ -703,9 +694,9 @@ static std::pair<bool, det_creation_referencet> get_or_create_reference(
       reference.array_length =
         info.allocate_objects.allocate_automatic_local_object(
           java_int_type(), "det_array_length");
-      info.block.add(code_assignt(
+      info.block.add(code_assignt{
         *reference.array_length,
-        side_effect_expr_nondett(java_int_type(), info.loc)));
+        side_effect_expr_nondett(java_int_type(), info.loc)});
       info.block.add(code_assumet{binary_predicate_exprt{
         *reference.array_length, ID_ge, from_integer(0, java_int_type())}});
       allocate_array(reference.expr, *reference.array_length, info);
@@ -757,9 +748,7 @@ static void assign_reference_from_json(
   const auto bool_reference_pair = get_or_create_reference(expr, id, info);
   const bool is_new_id = bool_reference_pair.first;
   const det_creation_referencet &reference = bool_reference_pair.second;
-  if(is_new_id && has_enum_type(expr, info.symbol_table))
-    assign_struct_from_json(dereference_exprt(reference.expr), json, info);
-  else if(has_id(json))
+  if(has_id(json) || (is_new_id && has_enum_type(expr, info.symbol_table)))
   {
     if(has_array_type(expr, info.symbol_table))
     {
@@ -769,8 +758,8 @@ static void assign_reference_from_json(
     else
       assign_struct_from_json(dereference_exprt(reference.expr), json, info);
   }
-  info.block.add(
-    code_assignt{expr, typecast_exprt{reference.expr, expr.type()}});
+  info.block.add(code_assignt{
+    expr, typecast_exprt::conditional_cast(reference.expr, expr.type())});
 }
 
 void assign_from_json_rec(
@@ -818,12 +807,12 @@ void assign_from_json(
   std::unordered_map<std::string, det_creation_referencet> &references)
 {
   source_locationt location{};
+  location.set_function(function_id);
   allocate_objectst allocate(
     ID_java,
     location,
     function_id,
     symbol_table);
-  location.set_function(function_id);
   code_blockt body_rec;
   const auto class_name = declaring_class(symbol_table.lookup_ref(function_id));
   INVARIANT(
