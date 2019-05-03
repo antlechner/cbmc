@@ -203,7 +203,11 @@ static jsont get_untyped_primitive(const jsont &json)
 }
 
 /// \ref get_untyped for array types.
-static json_arrayt get_untyped_array(const jsont &json, const typet &element_type)
+/// char arrays are treated as a special case as they are represented as an
+/// array of a single String element by json-io, rather than an array of one or
+/// more char elements.
+static json_arrayt
+get_untyped_array(const jsont &json, const typet &element_type)
 {
   const jsont untyped = get_untyped(json, "@items");
   PRECONDITION(untyped.is_array());
@@ -215,23 +219,15 @@ static json_arrayt get_untyped_array(const jsont &json, const typet &element_typ
     PRECONDITION(first.is_string());
     const auto &json_string = static_cast<const json_stringt &>(first);
 
-//    auto range = make_range(json_string.value.begin(), json_string.value.end());
-//    auto json_range = range.map([](const char &c) {
-//      const std::string debug(1, c);
-//      return json_stringt{debug};
-//    });
-
     const auto wide_string = utf8_to_utf16_native_endian(json_string.value);
-    auto range = make_range(wide_string.begin(), wide_string.end());
-    auto json_range = range.map([](const wchar_t &c) {
+    auto string_range = make_range(wide_string.begin(), wide_string.end());
+    const auto json_range = string_range.map([](const wchar_t &c) {
       const std::u16string u16(1, c);
       const std::string debug =
         std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>{}
           .to_bytes(u16);
       return json_stringt{debug};
     });
-
-    //    auto vector = std::vector<jsont>(json_range.begin(), json_range.end());
     return json_arrayt{json_range.begin(), json_range.end()};
   }
   return json_array;
@@ -367,25 +363,9 @@ static void assign_primitive_from_json(
   else if(expr.type() == java_char_type())
   {
     const std::wstring wide_value = utf8_to_utf16_native_endian(json.value);
-    if(wide_value.length() == 1)
-    {
-      init_body.add(
-        code_assignt(expr, from_integer(wide_value.front(), expr.type())));
-    }
-    else
-    {
-      // json.value must be of the form \uABCD.
-      const std::wstring &debug = wide_value.substr(2);
-      int character = std::stoi(debug, nullptr, 16);
-      init_body.add(code_assignt{expr, from_integer(character, expr.type())});
-
-
-//      unsigned value;
-//      std::stringstream stream;
-//      stream << std::hex << json.value;
-//      stream >> value;
-//      init_body.add(code_assignt{expr, from_integer(value, expr.type())});
-    }
+    PRECONDITION(wide_value.length() == 1);
+    init_body.add(
+      code_assignt(expr, from_integer(wide_value.front(), expr.type())));
   }
 }
 
