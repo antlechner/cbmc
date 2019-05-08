@@ -280,7 +280,7 @@ static optionalt<java_class_typet> given_runtime_type(
       "java::" + type_from_array->substr(1, type_from_array->length() - 2);
   }
   if(!symbol_table.has_symbol(runtime_type))
-    return {}; // TODO add warning here, falling back to default value
+    return {}; // Fall back to compile-time type if runtime type was not found
   const auto &replacement_class_type =
     to_java_class_type(symbol_table.lookup(runtime_type)->type);
   return replacement_class_type;
