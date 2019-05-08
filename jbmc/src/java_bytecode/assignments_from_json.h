@@ -1,6 +1,6 @@
 /*******************************************************************\
 
-Module:
+Module: Assignments to values specified in JSON files
 
 Author: Diffblue Ltd.
 
@@ -58,10 +58,29 @@ class ci_lazy_methods_neededt;
 /// For examples of JSON representations of objects, see the regression tests
 /// for this feature in
 /// jbmc/regression/jbmc/deterministic_assignments_json.
+///
+/// Known limitations:
+/// - If two reference-equal objects are defined in two different functions, and
+///   following the specification of json-io, one of them is stored as
+///   `{"@ref":1}` or similar, then that object is assigned a default value and
+///   the reference is ignored. If both objects are defined in the same function
+///   then they are correctly assigned the same value. This is because the
+///   symbol for the shared value is currently allocated dynamically. To fix
+///   this limitation, static allocation would have to be used instead, together
+///   with a static boolean to keep track of whether or not the symbol has been
+///   allocated already.
+/// - The special floating-point values NaN and positive/negative infinity are
+///   not supported. Note that in json-io 4.10.1, these are printed as "null".
+///   Future versions of json-io will support these values, and this function
+///   should be consistent with that if possible.
+/// - Not all assignments have source locations, and those that do only link to
+///   a function, not a line number.
+///
+/// For parameter documentation, see \ref det_creation_infot.
 void assign_from_json(
   const exprt &expr,
   const jsont &json,
-  const irep_idt &function_name,
+  const irep_idt &function_id,
   code_blockt &block,
   symbol_table_baset &symbol_table,
   optionalt<ci_lazy_methods_neededt> &needed_lazy_methods,
