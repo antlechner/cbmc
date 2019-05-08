@@ -798,7 +798,7 @@ code_blockt get_json_clinit_body(
           assign_from_json(
             value_pair.first,
             value_pair.second,
-            function_id,
+            clinit_function_name(*class_name),
             body,
             symbol_table,
             needed_lazy_methods,
