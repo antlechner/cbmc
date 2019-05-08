@@ -164,6 +164,23 @@ public class StaticValues extends StaticParent {
     assert referenceToPrimitiveArray != primitiveArrayField;
   }
 
+  public static char[] charArrayField = {
+    '\u0000', '\u0001', '\u0041', 'B', '?', ';', '\u2FC3'
+  };
+  public static void testCharArrayPass() {
+    assert charArrayField.length == 7 && charArrayField[0] == '\u0000' &&
+        charArrayField[1] == '\u0001' && charArrayField[2] == '\u0041' &&
+        charArrayField[3] == 'B' && charArrayField[4] == '?' && charArrayField[5] == ';' &&
+        charArrayField[6] == '\u2FC3';
+  }
+  public static void testCharArrayFail() {
+    assert charArrayField.length != 7 || charArrayField[0] != '\u0000' ||
+        charArrayField[1] != '\u0001' || charArrayField[2] != '\u0041' ||
+        charArrayField[3] != 'B' || charArrayField[4] != '?' || charArrayField[5] != ';' ||
+        charArrayField[6] != '\u2FC3';
+  }
+
+
   public static Foo[] referenceArrayField = {new Foo(5, -1), new Foo(6, 7)};
   public static void testReferenceArrayPass() {
     assert referenceArrayField.length == 2 && referenceArrayField[0].get() == 14 &&

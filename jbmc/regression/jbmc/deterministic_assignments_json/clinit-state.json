@@ -299,6 +299,12 @@
       "field":22
     },
     "primitiveArrayField":{"@ref":2},
+    "charArrayField":{
+      "@type":"[C",
+      "@items":[
+        "\u0000\u0001AB?;⿃"
+      ]
+    },
     "fibCharField":{
       "@type":"java.lang.Character",
       "value":"ɢ"
